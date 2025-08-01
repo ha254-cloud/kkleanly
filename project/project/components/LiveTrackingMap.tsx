@@ -15,7 +15,7 @@ import { Colors } from '../constants/Colors';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { driverService, DeliveryTracking, Driver } from '../services/driverService';
-import GoogleMapComponent from '../../components/GoogleMapComponent';
+import GoogleMapComponent from './GoogleMapComponent';
 import { LocationCoords, mapsService } from '../services/mapsService';
 import { locationService } from '../services/locationService';
 import { notificationService } from '../services/notificationService';
