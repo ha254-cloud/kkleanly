@@ -4,6 +4,11 @@
     "start": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
     "build:web": "expo export --platform web"
   },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-native": "^0.79.5"
+  },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@expo/cli": "^0.24.20",
