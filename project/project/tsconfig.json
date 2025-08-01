@@ -12,7 +12,7 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
-    "../../types/**/*.ts",
+    "../types/**/*.ts",
     "expo-env.d.ts",
     "nativewind-env.d.ts",
     ".expo/types/**/*.ts"
