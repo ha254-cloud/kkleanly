@@ -1,0 +1,7 @@
+@@ .. @@
+   "scripts": {
+-    "dev": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel --root .",
+-    "start": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel --root .",
++    "dev": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
++    "start": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
+     "build:web": "expo export --platform web",
