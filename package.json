@@ -20,7 +20,7 @@
     "typescript": "~5.8.3"
   },
   "scripts": {
-    "dev": "cd project/project && rm -rf node_modules package-lock.json && npm install && EXPO_NO_TELEMETRY=1 npx expo start --tunnel -c --clear-cache",
-    "start": "cd project/project && rm -rf node_modules package-lock.json && npm install && EXPO_NO_TELEMETRY=1 npx expo start --tunnel -c --clear-cache"
+    "dev": "cd project/project && rm -rf node_modules package-lock.json && npm install && EXPO_NO_TELEMETRY=1 npx expo start --tunnel --clear-cache",
+    "start": "cd project/project && rm -rf node_modules package-lock.json && npm install && EXPO_NO_TELEMETRY=1 npx expo start --tunnel -c --clear-cache",
   }
 }
