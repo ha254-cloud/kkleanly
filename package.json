@@ -20,7 +20,7 @@
     "typescript": "~5.8.3"
   },
   "scripts": {
-    "dev": "cd project/project && npm install && EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
-    "start": "EXPO_NO_TELEMETRY=1 npx expo start --root project/project --clear --tunnel"
+    "dev": "cd project && npm install && npm run dev",
+    "start": "cd project && npm start",
   }
 }
