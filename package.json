@@ -21,6 +21,6 @@
   },
   "scripts": {
     "dev": "cd project && npm install && EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
-    "start": "cd project && npm install && EXPO_NO_TELEMETRY=1 npx expo start --tunnel -c"
+    "start": "cd project && EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
   }
 }
