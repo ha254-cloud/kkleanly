@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
-    "start": "npm run dev",
+    "start": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
     "build:web": "expo export --platform web",
     "lint": "expo lint"
   },
