@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
+import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
 
 interface CardProps {
@@ -15,10 +16,13 @@ export const Card: React.FC<CardProps> = ({
   variant = 'default',
   padding = 'medium',
 }) => {
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
+
   const getCardStyle = (): ViewStyle => {
     const baseStyle: ViewStyle = {
       borderRadius: 16,
-      backgroundColor: Colors.background,
+      backgroundColor: colors.card,
     };
 
     const paddingStyles = {
@@ -30,14 +34,14 @@ export const Card: React.FC<CardProps> = ({
 
     const variantStyles = {
       default: {
-        shadowColor: Colors.primary,
+        shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
         shadowRadius: 8,
         elevation: 3,
       },
       elevated: {
-        shadowColor: Colors.primary,
+        shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.15,
         shadowRadius: 16,
@@ -45,7 +49,7 @@ export const Card: React.FC<CardProps> = ({
       },
       outlined: {
         borderWidth: 1,
-        borderColor: Colors.accent,
+        borderColor: colors.border,
         shadowOpacity: 0,
         elevation: 0,
       },

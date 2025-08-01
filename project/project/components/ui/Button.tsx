@@ -1,11 +1,12 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, Animated } from 'react-native';
+import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
 
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
   size?: 'small' | 'medium' | 'large';
   disabled?: boolean;
   style?: ViewStyle;
@@ -24,6 +25,8 @@ export const Button: React.FC<ButtonProps> = ({
   icon,
 }) => {
   const scaleValue = React.useRef(new Animated.Value(1)).current;
+  const { isDark } = useTheme();
+  const colors = isDark ? Colors.dark : Colors.light;
 
   const handlePressIn = () => {
     Animated.spring(scaleValue, {
@@ -45,7 +48,7 @@ export const Button: React.FC<ButtonProps> = ({
       alignItems: 'center',
       justifyContent: 'center',
       flexDirection: 'row',
-      shadowColor: Colors.primary,
+      shadowColor: colors.primary,
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.2,
       shadowRadius: 8,
@@ -60,17 +63,17 @@ export const Button: React.FC<ButtonProps> = ({
 
     const variantStyles = {
       primary: {
-        backgroundColor: Colors.primary,
+        backgroundColor: colors.primary,
         borderWidth: 0,
       },
       secondary: {
-        backgroundColor: Colors.secondary,
+        backgroundColor: colors.secondary,
         borderWidth: 0,
       },
       outline: {
         backgroundColor: 'transparent',
         borderWidth: 2,
-        borderColor: Colors.primary,
+        borderColor: colors.primary,
       },
       ghost: {
         backgroundColor: 'transparent',
@@ -78,10 +81,14 @@ export const Button: React.FC<ButtonProps> = ({
         shadowOpacity: 0,
         elevation: 0,
       },
+      danger: {
+        backgroundColor: colors.error,
+        borderWidth: 0,
+      },
     };
 
     const disabledStyle = disabled ? {
-      backgroundColor: Colors.light,
+      backgroundColor: colors.surface,
       shadowOpacity: 0,
       elevation: 0,
     } : {};
@@ -108,14 +115,15 @@ export const Button: React.FC<ButtonProps> = ({
     };
 
     const variantStyles = {
-      primary: { color: Colors.background },
-      secondary: { color: Colors.background },
-      outline: { color: '#FFFFFF' },
-      ghost: { color: '#FFFFFF' },
+      primary: { color: '#FFFFFF' },
+      secondary: { color: '#FFFFFF' },
+      outline: { color: colors.primary },
+      ghost: { color: colors.text },
+      danger: { color: '#FFFFFF' },
     };
 
     const disabledStyle = disabled ? {
-      color: Colors.textSecondary,
+      color: colors.textSecondary,
     } : {};
 
     return {

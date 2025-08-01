@@ -89,6 +89,24 @@ class NotificationService {
     });
   }
 
+  async sendETAUpdateNotification(orderId: string, eta: string) {
+    await this.sendLocalNotification({
+      orderId,
+      type: 'order_assigned',
+      title: 'ETA Update 🚚',
+      body: `Your driver will arrive in approximately ${eta}`,
+    });
+  }
+
+  async sendDriverArrivedNotification(orderId: string, address: string) {
+    await this.sendLocalNotification({
+      orderId,
+      type: 'order_assigned',
+      title: 'Driver Arrived! 📍',
+      body: `Your driver has arrived at ${address}`,
+    });
+  }
+
   async sendOrderAssignedNotification(orderId: string, driverName: string) {
     await this.sendLocalNotification({
       orderId,
