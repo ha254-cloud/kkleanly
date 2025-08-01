@@ -1,5 +1,5 @@
  import { WhatsAppButton } from '../../components/ui/WhatsAppButton';
-+import { LiveTrackingMap } from '../../components/LiveTrackingMap';
+import { LiveTrackingMap } from '../../components/LiveTrackingMap';
 import React from 'react';
 import { Alert, Dimensions, Text, View } from 'react-native';
 import { Card } from '@/components/ui/Card';
