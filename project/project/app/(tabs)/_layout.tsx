@@ -5,6 +5,7 @@ import { Chrome as Home, ShoppingBag, Search, User } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '../../constants/Colors';
+import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 
 export default function TabLayout() {
   const { isDark } = useTheme();
@@ -17,6 +18,11 @@ export default function TabLayout() {
       router.replace('/login');
     }
   }, [user, loading]);
+
+  // Show loading spinner while authentication state is being determined
+  if (loading) {
+    return <LoadingSpinner />;
+  }
 
   // Don't render tabs if not authenticated
   if (!user) {
