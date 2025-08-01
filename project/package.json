@@ -1,8 +1,13 @@
-@@ .. @@
-   "scripts": {
--    "start": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel --root .",
-    "dev": "cd project && npm install && EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
+{
+  "scripts": {
+    "dev": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
     "start": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
-+    "dev": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
-+    "start": "EXPO_NO_TELEMETRY=1 npx expo start --tunnel",
-     "build:web": "expo export --platform web",
+    "build:web": "expo export --platform web"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@expo/cli": "^0.24.20",
+    "@types/react": "^19.0.0",
+    "typescript": "~5.8.3"
+  }
+}
