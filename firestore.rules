@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Orders collection rules with proper admin access control
+    match /orders/{orderId} {
+      // 🔒 ADMIN: Allow admin to read ALL orders
+      allow read: if request.auth != null && 
+                  request.auth.token.email == 'admin@kleanly.co.ke';
+      
+      // 👤 USERS: Allow users to read only their own orders
+      allow read: if request.auth != null && 
+                  request.auth.uid == resource.data.userID;
+      
+      // 👤 USERS: Allow users to write their own orders
+      allow write: if request.auth != null && 
+                   request.auth.uid == resource.data.userID;
+      
+      // 👤 USERS: Allow users to create orders (they become the owner)
+      allow create: if request.auth != null && 
+                    request.auth.uid == request.resource.data.userID;
+      
+      // 🔒 ADMIN: Allow admin to update order status (for driver assignment, etc.)
+      allow update: if request.auth != null && 
+                    request.auth.token.email == 'admin@kleanly.co.ke';
+    }
+    
+    // Drivers collection rules - admin only
+    match /drivers/{driverId} {
+      // 🔒 ADMIN: Only admin can read drivers
+      allow read: if request.auth != null && 
+                  request.auth.token.email == 'admin@kleanly.co.ke';
+      
+      // 🔒 ADMIN: Only admin can write/create drivers
+      allow write, create: if request.auth != null && 
+                          request.auth.token.email == 'admin@kleanly.co.ke';
+    }
+    
+    // Users collection rules (user profiles)
+    match /users/{userId} {
+      // 🔒 ADMIN: Allow admin to read all user profiles
+      allow read: if request.auth != null && 
+                  request.auth.token.email == 'admin@kleanly.co.ke';
+      
+      // 👤 USERS: Users can read and write their own profile
+      allow read, write: if request.auth != null && 
+                         request.auth.uid == userId;
+    }
+    
+    // Delivery tracking collection
+    match /deliveryTracking/{trackingId} {
+      // 🔒 ADMIN: Admin can read/write all tracking data
+      allow read, write: if request.auth != null && 
+                         request.auth.token.email == 'admin@kleanly.co.ke';
+      
+      // 🚚 DRIVERS: Drivers can read/write tracking data for their assigned deliveries
+      allow read, write: if request.auth != null && 
+                         request.auth.uid == resource.data.driverId;
+      
+      // 👤 USERS: Users can read tracking data for their orders by linking through orderId
+      allow read: if request.auth != null && exists(/databases/$(database)/documents/orders/$(resource.data.orderId)) && 
+                  get(/databases/$(database)/documents/orders/$(resource.data.orderId)).data.userID == request.auth.uid;
+    }
+    
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
