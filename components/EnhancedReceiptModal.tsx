@@ -7,14 +7,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
-  ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../context/ThemeContext';
 import { Order } from '../services/orderService';
-import { PDFReceiptService } from '../services/pdfReceiptService';
 
 interface EnhancedReceiptModalProps {
   visible: boolean;
@@ -31,7 +29,6 @@ export const EnhancedReceiptModal: React.FC<EnhancedReceiptModalProps> = ({
 }) => {
   const { colors } = useTheme();
   
-  // Provide fallback colors in case they don't exist on the Colors type
   const themeColors = {
     background: (colors as any).background || '#FFFFFF',
     primary: (colors as any).primary || '#007AFF',
@@ -39,83 +36,37 @@ export const EnhancedReceiptModal: React.FC<EnhancedReceiptModalProps> = ({
     text: (colors as any).text || '#000000',
     textSecondary: (colors as any).textSecondary || '#666666',
     border: (colors as any).border || '#E0E0E0',
-    accent: (colors as any).accent || '#FF9500',
     success: (colors as any).success || '#34C759',
-    info: (colors as any).info || '#5AC8FA'
-  };
-  const [loading, setLoading] = useState(false);
-  const [pdfUri, setPdfUri] = useState<string | null>(null);
-
-  const generatePDF = async () => {
-    try {
-      setLoading(true);
-      const pdfUriResult = await PDFReceiptService.generatePDFReceipt({
-        order,
-        customerInfo: { name: customerName, phone: order.customerPhone || '', email: order.customerEmail },
-        paymentInfo: { method: 'Cash', paidAt: order.createdAt, transactionId: order.id }
-      });
-      
-      // Store the URI string result
-      setPdfUri(typeof pdfUriResult === 'string' ? pdfUriResult : null);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to generate PDF receipt');
-      console.error('PDF generation error:', error);
-    } finally {
-      setLoading(false);
-    }
   };
 
-  const sharePDF = async () => {
-    if (!pdfUri) {
-      await generatePDF();
-      return;
-    }
+  const shareOnWhatsApp = () => {
+    const receipt = `
+🧾 *KLEANLY RECEIPT*
 
-    try {
-      // Use the sharing functionality from PDFReceiptService
-      await PDFReceiptService.sharePDF(pdfUri, `Kleanly_Receipt_${order.id?.slice(-6).toUpperCase()}.pdf`);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to share PDF receipt');
-      console.error('PDF sharing error:', error);
-    }
-  };
+📋 Order #${order.id?.slice(-8).toUpperCase()}
+📅 Date: ${new Date(order.createdAt).toLocaleDateString()}
 
-  const downloadPDF = async () => {
-    if (!pdfUri) {
-      await generatePDF();
-      return;
-    }
+👤 *Customer Information*
+Name: ${customerName}
+Address: ${order.address || 'N/A'}
 
-    try {
-      // In React Native/Expo, download is same as share since we can't directly save to filesystem
-      await PDFReceiptService.downloadPDF(pdfUri, `Kleanly_Receipt_${order.id?.slice(-6).toUpperCase()}.pdf`);
-      Alert.alert('Success', 'PDF ready to save or share');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to download PDF receipt');
-      console.error('PDF download error:', error);
-    }
-  };
+🧺 *Service Details*
+Service: ${(order.category || '').replace('-', ' ').toUpperCase()}
+Items: ${order.items?.join(', ') || 'N/A'}
+Status: ${(order.status || '').toUpperCase()}
 
-  const emailPDF = async () => {
-    if (!order.customerEmail) {
-      Alert.alert('No Email', 'Customer email not available for this order');
-      return;
-    }
+💰 *Payment Details*
+Subtotal: KSh ${Math.round(order.total / 1.16).toLocaleString()}
+VAT (16%): KSh ${Math.round(order.total - (order.total / 1.16)).toLocaleString()}
+*Total: KSh ${order.total.toLocaleString()}*
 
-    if (!pdfUri) {
-      await generatePDF();
-      return;
-    }
+✨ Thank you for choosing Kleanly!
+📞 Support: +254 714 648 622
+📧 Email: kleanlyspt@gmail.com
+    `.trim();
 
-    try {
-      // Since we can't directly send emails from React Native without a backend service,
-      // we'll share the PDF and let the user choose an email app
-      await PDFReceiptService.sharePDF(pdfUri, `Kleanly_Receipt_${order.id?.slice(-6).toUpperCase()}.pdf`);
-      Alert.alert('Success', 'Please select your email app to send the receipt');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to prepare email receipt');
-      console.error('PDF email error:', error);
-    }
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(receipt)}`;
+    Linking.openURL(whatsappUrl);
   };
 
   return (
@@ -155,13 +106,30 @@ export const EnhancedReceiptModal: React.FC<EnhancedReceiptModalProps> = ({
               <Text style={[styles.value, { color: themeColors.text }]}>{customerName}</Text>
             </View>
             <View style={styles.infoRow}>
-              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Phone:</Text>
-              <Text style={[styles.value, { color: themeColors.text }]}>{order.customerPhone || 'N/A'}</Text>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Address:</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>{order.address || 'N/A'}</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={[styles.label, { color: themeColors.textSecondary }]}>Status:</Text>
               <Text style={[styles.value, { color: themeColors.primary }]}>
                 {order.status.toUpperCase()}
+              </Text>
+            </View>
+          </View>
+
+          {/* Service Details */}
+          <View style={[styles.section, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Service Details</Text>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Service:</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>
+                {(order.category || '').replace('-', ' ').toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Items:</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>
+                {order.items?.join(', ') || 'N/A'}
               </Text>
             </View>
           </View>
@@ -189,52 +157,17 @@ export const EnhancedReceiptModal: React.FC<EnhancedReceiptModalProps> = ({
             </View>
           </View>
 
-          {/* PDF Actions */}
+          {/* WhatsApp Share */}
           <View style={[styles.section, { backgroundColor: themeColors.surface }]}>
-            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Receipt Options</Text>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Share Receipt</Text>
             
             <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: themeColors.primary }]}
-              onPress={generatePDF}
-              disabled={loading}
+              style={[styles.actionButton, { backgroundColor: themeColors.success }]}
+              onPress={shareOnWhatsApp}
             >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Ionicons name="document-text" size={20} color="#FFFFFF" />
-              )}
-              <Text style={styles.actionButtonText}>Generate PDF Receipt</Text>
+              <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" />
+              <Text style={styles.actionButtonText}>Share via WhatsApp</Text>
             </TouchableOpacity>
-
-            {pdfUri && (
-              <>
-                <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: themeColors.accent }]}
-                  onPress={sharePDF}
-                >
-                  <Ionicons name="share" size={20} color="#FFFFFF" />
-                  <Text style={styles.actionButtonText}>Share PDF</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: themeColors.success }]}
-                  onPress={downloadPDF}
-                >
-                  <Ionicons name="download" size={20} color="#FFFFFF" />
-                  <Text style={styles.actionButtonText}>Download PDF</Text>
-                </TouchableOpacity>
-
-                {order.customerEmail && (
-                  <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: themeColors.info }]}
-                    onPress={emailPDF}
-                  >
-                    <Ionicons name="mail" size={20} color="#FFFFFF" />
-                    <Text style={styles.actionButtonText}>Email PDF</Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
           </View>
         </ScrollView>
       </View>

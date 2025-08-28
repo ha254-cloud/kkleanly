@@ -12,37 +12,37 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useTheme } from '../context/ThemeContext';
-import { Order } from '../services/orderService';
-import { PDFReceiptService } from '../services/pdfReceiptService';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { useTheme } from '../context/ThemeContext';
+import { Order } from '../services/orderService';
+import { ReceiptService } from '../services/receiptService';
 
 interface PDFReceiptModalProps {
   visible: boolean;
   onClose: () => void;
   order: Order;
-  customerInfo: {
-    name: string;
-    email: string;
-    phone: string;
-  };
-  paymentInfo: {
-    method: string;
-    transactionId?: string;
-    paidAt: string;
-  };
+  customerName?: string;
 }
 
 export const PDFReceiptModal: React.FC<PDFReceiptModalProps> = ({
   visible,
   onClose,
   order,
-  customerInfo,
-  paymentInfo
+  customerName = 'Valued Customer'
 }) => {
-  const theme = useTheme();
-  const colors: Record<string, string> = theme.colors || theme;
+  const { colors } = useTheme();
+  
+  const themeColors = {
+    background: (colors as any).background || '#FFFFFF',
+    primary: (colors as any).primary || '#007AFF',
+    surface: (colors as any).surface || '#F8F9FA',
+    text: (colors as any).text || '#000000',
+    textSecondary: (colors as any).textSecondary || '#666666',
+    border: (colors as any).border || '#E0E0E0',
+    success: (colors as any).success || '#34C759',
+  };
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [pdfUri, setPdfUri] = useState<string | null>(null);
@@ -56,11 +56,13 @@ export const PDFReceiptModal: React.FC<PDFReceiptModalProps> = ({
   const generatePDF = async () => {
     setIsGenerating(true);
     try {
-      const blob = await PDFReceiptService.generatePDFReceipt({
+      const pdfData = await ReceiptService.generateReceiptText({
         order,
-        customerInfo,
-        paymentInfo
+        customerName
       });
+      
+      // Convert string to Blob if needed
+      const blob = typeof pdfData === 'string' ? new Blob([pdfData], { type: 'application/pdf' }) : pdfData;
       setPdfBlob(blob);
 
       // For mobile, save to file system
@@ -93,7 +95,15 @@ export const PDFReceiptModal: React.FC<PDFReceiptModalProps> = ({
       const filename = `kleanly-receipt-${order.id?.slice(-8)}.pdf`;
       
       if (Platform.OS === 'web') {
-        await PDFReceiptService.downloadPDF(pdfBlob, filename);
+        // Create download link for web
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
       } else if (pdfUri) {
         await Sharing.shareAsync(pdfUri, {
           mimeType: 'application/pdf',
@@ -113,10 +123,35 @@ export const PDFReceiptModal: React.FC<PDFReceiptModalProps> = ({
       const filename = `kleanly-receipt-${order.id?.slice(-8)}.pdf`;
       
       if (Platform.OS === 'web') {
-        await PDFReceiptService.sharePDF(pdfBlob, filename);
+        // Use Web Share API if available, otherwise fallback to download
+        if (navigator.share) {
+          const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+          await navigator.share({
+            files: [file],
+            title: 'Kleanly Receipt'
+          });
+        } else {
+          // Fallback to download
+          const url = URL.createObjectURL(pdfBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }
       } else if (pdfUri) {
         await Sharing.shareAsync(pdfUri, {
           mimeType: 'application/pdf',
+          dialogTitle: 'Share Kleanly Receipt'
+        });
+      }
+    } catch (error) {
+      console.error('Error sharing PDF:', error);
+      Alert.alert('Error', 'Failed to share receipt. Please try again.');
+    }
+  };
           dialogTitle: 'Share Kleanly Receipt'
         });
       }
@@ -129,7 +164,7 @@ export const PDFReceiptModal: React.FC<PDFReceiptModalProps> = ({
   const handleEmail = async () => {
     try {
       const subject = `Kleanly Receipt - Order #${order.id?.slice(-8)}`;
-      const body = `Dear ${customerInfo.name},\n\nThank you for choosing Kleanly! Please find your receipt attached.\n\nOrder Details:\n- Service: ${order.category.replace('-', ' ')}\n- Total: KSh ${order.total}\n- Date: ${new Date(paymentInfo.paidAt).toLocaleDateString()}\n\nBest regards,\nKleanly Team`;
+      const body = `Dear ${customerName},\n\nThank you for choosing Kleanly! Please find your receipt attached.\n\nOrder Details:\n- Service: ${order.category.replace('-', ' ')}\n- Total: KSh ${order.total}\n- Date: ${new Date(order.createdAt).toLocaleDateString()}\n\nBest regards,\nKleanly Team`;
       
       const mailtoUrl = `mailto:${customerInfo.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       
@@ -144,6 +179,19 @@ export const PDFReceiptModal: React.FC<PDFReceiptModalProps> = ({
     }
   };
 
+  const shareReceipt = async () => {
+    try {
+      await ReceiptService.shareReceipt({
+        order,
+        customerName,
+        customerPhone: order.phone || 'N/A'
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Failed to share receipt via WhatsApp');
+      console.error('Receipt sharing error:', error);
+    }
+  };
+
   return (
     <Modal
       visible={visible}
@@ -151,155 +199,107 @@ export const PDFReceiptModal: React.FC<PDFReceiptModalProps> = ({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.container, { backgroundColor: themeColors.background }]}>
         {/* Header */}
         <LinearGradient
-          colors={[colors.primary, colors.primary + 'CC']}
+          colors={[themeColors.primary, themeColors.primary + 'CC']}
           style={styles.header}
         >
           <View style={styles.headerContent}>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color={colors.textOnDark} />
+              <Ionicons name="close" size={24} color="#FFFFFF" />
             </TouchableOpacity>
-            <Text style={[styles.headerTitle, { color: colors.textOnDark }]}>
-              PDF Receipt
+            <Text style={styles.headerTitle}>
+              Receipt
             </Text>
             <View style={styles.placeholder} />
           </View>
         </LinearGradient>
 
         <ScrollView style={styles.content}>
-          {/* Receipt Preview */}
-          <View style={[styles.previewSection, { backgroundColor: colors.surface }]}>
-            <View style={styles.previewHeader}>
-              <Ionicons name="document-text" size={32} color={colors.primary} />
-              <Text style={[styles.previewTitle, { color: colors.text }]}>
-                Receipt Ready
-              </Text>
-              <Text style={[styles.previewSubtitle, { color: colors.textSecondary }]}>
+          {/* Order Summary */}
+          <View style={[styles.section, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Order Summary</Text>
+            <View style={styles.orderInfo}>
+              <Text style={[styles.orderId, { color: themeColors.primary }]}>
                 Order #{order.id?.slice(-8).toUpperCase()}
               </Text>
+              <Text style={[styles.orderDate, { color: themeColors.textSecondary }]}>
+                {new Date(order.createdAt).toLocaleDateString()}
+              </Text>
             </View>
-
-            {isGenerating ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-                  Generating PDF Receipt...
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.receiptDetails}>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
-                    Customer:
-                  </Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>
-                    {customerInfo.name}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
-                    Service:
-                  </Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>
-                    {order.category.replace('-', ' ')}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
-                    Total Amount:
-                  </Text>
-                  <Text style={[styles.detailValue, styles.totalAmount, { color: colors.primary }]}>
-                    KSh {order.total.toFixed(2)}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
-                    Payment Method:
-                  </Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>
-                    {paymentInfo.method}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailLabel, { color: colors.textSecondary }]}>
-                    Date:
-                  </Text>
-                  <Text style={[styles.detailValue, { color: colors.text }]}>
-                    {new Date(paymentInfo.paidAt).toLocaleDateString()}
-                  </Text>
-                </View>
-              </View>
-            )}
           </View>
 
-          {/* Action Buttons */}
-          {!isGenerating && pdfBlob && (
-            <View style={styles.actionsSection}>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.primaryButton, { backgroundColor: colors.primary }]}
-                onPress={handleDownload}
-              >
-                <Ionicons name="download" size={20} color={colors.textOnDark} />
-                <Text style={[styles.actionButtonText, { color: colors.textOnDark }]}>
-                  Download PDF
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.actionButton, styles.secondaryButton, { borderColor: colors.primary }]}
-                onPress={handleShare}
-              >
-                <Ionicons name="share" size={20} color={colors.primary} />
-                <Text style={[styles.actionButtonText, { color: colors.primary }]}>
-                  Share Receipt
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.actionButton, styles.secondaryButton, { borderColor: colors.primary }]}
-                onPress={handleEmail}
-              >
-                <Ionicons name="mail" size={20} color={colors.primary} />
-                <Text style={[styles.actionButtonText, { color: colors.primary }]}>
-                  Email Receipt
-                </Text>
-              </TouchableOpacity>
+          {/* Customer Information */}
+          <View style={[styles.section, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Customer Information</Text>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Name:</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>{customerName}</Text>
             </View>
-          )}
-
-          {/* Features */}
-          <View style={[styles.featuresSection, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.featuresTitle, { color: colors.text }]}>
-              PDF Receipt Features
-            </Text>
-            <View style={styles.featuresList}>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                <Text style={[styles.featureText, { color: colors.textSecondary }]}>
-                  Professional design with Kleanly branding
-                </Text>
-              </View>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                <Text style={[styles.featureText, { color: colors.textSecondary }]}>
-                  Complete order and payment details
-                </Text>
-              </View>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                <Text style={[styles.featureText, { color: colors.textSecondary }]}>
-                  Ready for printing or digital storage
-                </Text>
-              </View>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-                <Text style={[styles.featureText, { color: colors.textSecondary }]}>
-                  Secure and tamper-proof format
-                </Text>
-              </View>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Address:</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>{order.address || 'N/A'}</Text>
             </View>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Status:</Text>
+              <Text style={[styles.value, { color: themeColors.primary }]}>
+                {order.status.toUpperCase()}
+              </Text>
+            </View>
+          </View>
+
+          {/* Service Details */}
+          <View style={[styles.section, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Service Details</Text>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Service:</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>
+                {(order.category || '').replace('-', ' ').toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Items:</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>
+                {order.items?.join(', ') || 'N/A'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Cost Breakdown */}
+          <View style={[styles.section, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Payment Details</Text>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>Subtotal:</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>
+                KSh {Math.round(order.total / 1.16).toLocaleString()}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={[styles.label, { color: themeColors.textSecondary }]}>VAT (16%):</Text>
+              <Text style={[styles.value, { color: themeColors.text }]}>
+                KSh {Math.round(order.total - (order.total / 1.16)).toLocaleString()}
+              </Text>
+            </View>
+            <View style={[styles.totalRow, { borderTopColor: themeColors.border }]}>
+              <Text style={[styles.totalLabel, { color: themeColors.text }]}>Total:</Text>
+              <Text style={[styles.totalValue, { color: themeColors.primary }]}>
+                KSh {order.total.toLocaleString()}
+              </Text>
+            </View>
+          </View>
+
+          {/* WhatsApp Share */}
+          <View style={[styles.section, { backgroundColor: themeColors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Share Receipt</Text>
+            
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: themeColors.success }]}
+              onPress={shareReceipt}
+            >
+              <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" />
+              <Text style={styles.actionButtonText}>Share via WhatsApp</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </View>
@@ -312,117 +312,98 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingTop: Platform.OS === 'ios' ? 50 : 30,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-  },
-  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingTop: 50,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
   closeButton: {
-    padding: 5,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   placeholder: {
-    width: 34,
+    width: 40,
   },
   content: {
     flex: 1,
     padding: 20,
   },
-  previewSection: {
+  section: {
     borderRadius: 12,
     padding: 20,
-    marginBottom: 20,
+    marginBottom: 15,
   },
-  previewHeader: {
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 15,
+  },
+  orderInfo: {
     alignItems: 'center',
-    marginBottom: 20,
   },
-  previewTitle: {
+  orderId: {
     fontSize: 20,
-    fontWeight: 'bold',
-    marginTop: 10,
+    fontWeight: '700',
     marginBottom: 5,
   },
-  previewSubtitle: {
+  orderDate: {
     fontSize: 14,
   },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingVertical: 30,
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 14,
-  },
-  receiptDetails: {
-    gap: 12,
-  },
-  detailRow: {
+  infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 10,
   },
-  detailLabel: {
+  label: {
     fontSize: 14,
     flex: 1,
   },
-  detailValue: {
+  value: {
     fontSize: 14,
     fontWeight: '500',
-    flex: 1,
+    flex: 2,
     textAlign: 'right',
   },
-  totalAmount: {
-    fontSize: 16,
-    fontWeight: 'bold',
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 15,
+    marginTop: 15,
+    borderTopWidth: 1,
   },
-  actionsSection: {
-    gap: 12,
-    marginBottom: 20,
+  totalLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  totalValue: {
+    fontSize: 20,
+    fontWeight: '700',
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    gap: 8,
-  },
-  primaryButton: {},
-  secondaryButton: {
-    borderWidth: 1,
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
   },
   actionButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
-  },
-  featuresSection: {
-    borderRadius: 12,
-    padding: 20,
-  },
-  featuresTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 15,
-  },
-  featuresList: {
-    gap: 10,
-  },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  featureText: {
-    fontSize: 14,
-    flex: 1,
+    marginLeft: 10,
   },
 });

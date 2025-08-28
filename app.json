@@ -1,71 +1,39 @@
 {
   "expo": {
     "name": "Kleanly",
-    "slug": "kleanly-laundry-app",
+    "slug": "kleanly",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "kleanly",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/space.jpg",
       "resizeMode": "cover",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#ffffff"
     },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.kleanly.app",
-      "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Kleanly needs access to your location to automatically detect your pickup and delivery address for laundry services. This helps us provide faster and more accurate service.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Kleanly needs access to your location to automatically detect your pickup and delivery address for laundry services and provide real-time delivery tracking.",
-        "NSLocationAlwaysUsageDescription": "Kleanly needs background location access to provide real-time delivery tracking for drivers and route optimization."
-      }
+      "supportsTablet": true
     },
     "android": {
-      "package": "com.kleanly.app",
-      "versionCode": 1,
-      "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
-      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#ffffff"
       }
     },
     "web": {
       "bundler": "metro",
-      "output": "single",
+      "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
-      "expo-asset",
-      "expo-web-browser",
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "Kleanly needs access to your location to automatically detect your pickup and delivery address for laundry services.",
-          "locationAlwaysPermission": "Kleanly needs access to your location to provide real-time delivery tracking for drivers.",
-          "locationWhenInUsePermission": "Kleanly needs access to your location to automatically detect your pickup and delivery address for laundry services."
-        }
-      ],
-      [
-        "react-native-maps",
-        {
-          "googleMapsApiKey": "AIzaSyBfex94iisk3wDYRr8GyoIfxRUGzGPUhFc"
-        }
-      ]
+      "expo-router"
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "a4fc020e-ae2d-4c88-847b-a44d84216f16"
-      }
     }
   }
 }

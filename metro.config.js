@@ -29,6 +29,21 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform);
 };
 
+// Add node module resolution for Buffer polyfill
+config.resolver.alias = {
+  ...config.resolver.alias,
+  buffer: require.resolve('buffer'),
+};
+
+// Add Buffer to the global scope for React Native
+config.resolver.platforms = ['native', 'web', 'ios', 'android'];
+
+// Add any custom Metro configuration here
+config.resolver.assetExts.push(
+  // Adds support for `.db` files for SQLite databases
+  'db'
+);
+
 // module.exports = withNativeWind(config, {
 //   input: './global.css',
 //   configPath: './tailwind.config.js',
