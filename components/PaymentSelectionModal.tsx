@@ -40,19 +40,19 @@ export const PaymentSelectionModal: React.FC<PaymentSelectionModalProps> = ({
 
   const paymentMethods = [
     {
+      id: 'mpesa',
+      title: 'M-Pesa',
+      subtitle: 'Pay now with mobile money - Fast & Secure',
+      icon: <Smartphone size={24} color="#00C851" />,
+      color: '#00C851',
+      recommended: true,
+    },
+    {
       id: 'cash',
       title: 'Cash on Pickup',
       subtitle: 'Pay when we deliver your clean items',
       icon: <Banknote size={24} color={colors.success} />,
       color: colors.success,
-      recommended: true,
-    },
-    {
-      id: 'mpesa',
-      title: 'M-Pesa',
-      subtitle: 'Pay now with mobile money',
-      icon: <Smartphone size={24} color="#00C851" />,
-      color: '#00C851',
       recommended: false,
     },
     {

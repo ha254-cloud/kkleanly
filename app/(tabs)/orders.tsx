@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   StyleSheet,
   SafeAreaView,
   TouchableOpacity,
   Alert,
   RefreshControl,
+  FlatList,
+  ListRenderItem,
 } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft, Package, Clock, CheckCircle, Truck, Search, Filter } from 'lucide-react-native';
@@ -44,9 +45,10 @@ export default function OrdersScreen() {
     }
   };
 
-  const filteredOrders = selectedFilter === 'all' 
-    ? orders 
-    : orders.filter(order => order.status === selectedFilter);
+  const filteredOrders = React.useMemo(() => {
+    const base = selectedFilter === 'all' ? orders : orders.filter(o => o.status === selectedFilter);
+    return base;
+  }, [orders, selectedFilter]);
 
   const getStatusCount = (status: Order['status']) => {
     return orders.filter(order => order.status === status).length;
@@ -81,71 +83,65 @@ export default function OrdersScreen() {
         </TouchableOpacity>
       </LinearGradient>
 
-      <ScrollView 
-        style={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[colors.primary]}
-            tintColor={colors.primary}
+      <FlatList
+        data={filteredOrders}
+        keyExtractor={(item) => item.id!}
+        renderItem={({ item }) => (
+          <OrderCard
+            order={item}
+            onPress={() => handleOrderPress(item)}
           />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Filter Tabs */}
-        <View style={styles.filterSection}>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterContainer}
-            contentContainerStyle={styles.filterContent}
-          >
-            {filterOptions.map((filter) => (
-              <TouchableOpacity
-                key={filter.id}
-                style={[
-                  styles.filterTab,
-                  {
-                    backgroundColor: selectedFilter === filter.id ? colors.primary : colors.surface,
-                    borderColor: selectedFilter === filter.id ? colors.primary : colors.border,
-                  }
-                ]}
-                onPress={() => setSelectedFilter(filter.id as any)}
-              >
-                <Text style={[
-                  styles.filterTabText,
-                  { color: selectedFilter === filter.id ? '#FFFFFF' : colors.text }
-                ]}>
-                  {filter.label}
-                </Text>
-                {filter.count > 0 && (
-                  <View style={[
-                    styles.filterBadge,
-                    { backgroundColor: selectedFilter === filter.id ? 'rgba(255,255,255,0.3)' : colors.primary }
+        )}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={(
+          <View style={styles.filterSection}>
+            <FlatList
+              data={filterOptions}
+              keyExtractor={(f) => f.id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterContent}
+              renderItem={({ item: filter }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.filterTab,
+                    {
+                      backgroundColor: selectedFilter === filter.id ? colors.primary : colors.surface,
+                      borderColor: selectedFilter === filter.id ? colors.primary : colors.border,
+                    }
+                  ]}
+                  onPress={() => setSelectedFilter(filter.id as any)}
+                >
+                  <Text style={[
+                    styles.filterTabText,
+                    { color: selectedFilter === filter.id ? '#FFFFFF' : colors.text }
                   ]}>
-                    <Text style={[
-                      styles.filterBadgeText,
-                      { color: selectedFilter === filter.id ? '#FFFFFF' : '#FFFFFF' }
+                    {filter.label}
+                  </Text>
+                  {filter.count > 0 && (
+                    <View style={[
+                      styles.filterBadge,
+                      { backgroundColor: selectedFilter === filter.id ? 'rgba(255,255,255,0.3)' : colors.primary }
                     ]}>
-                      {filter.count}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Orders List */}
-        {loading ? (
+                      <Text style={[
+                        styles.filterBadgeText,
+                        { color: '#FFFFFF' }
+                      ]}>
+                        {filter.count}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        )}
+        ListEmptyComponent={loading ? (
           <View style={styles.loadingContainer}>
             <Package size={48} color={colors.textSecondary} />
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-              Loading your orders...
-            </Text>
+            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading your orders...</Text>
           </View>
-        ) : filteredOrders.length === 0 ? (
+        ) : (
           <View style={styles.emptyContainer}>
             <LinearGradient
               colors={[colors.primary + '10', colors.primary + '05']}
@@ -178,18 +174,11 @@ export default function OrdersScreen() {
               </Card>
             </LinearGradient>
           </View>
-        ) : (
-          <View style={styles.ordersList}>
-            {filteredOrders.map((order) => (
-              <OrderCard
-                key={order.id}
-                order={order}
-                onPress={() => handleOrderPress(order)}
-              />
-            ))}
-          </View>
         )}
-      </ScrollView>
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        showsVerticalScrollIndicator={false}
+      />
     </SafeAreaView>
   );
 }
@@ -310,5 +299,8 @@ const styles = StyleSheet.create({
   },
   ordersList: {
     padding: 12,
+  },
+  listContent: {
+    paddingBottom: 40,
   },
 });

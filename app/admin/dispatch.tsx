@@ -10,59 +10,115 @@ import {
   Modal,
 } from 'react-native';
 import { router } from 'expo-router';
-import { ArrowLeft, Truck, User, MapPin, Clock, Package, CheckCircle, RefreshCw } from 'lucide-react-native';
+import { ArrowLeft, Truck, User, MapPin, Clock, Package, CheckCircle, RefreshCw, ChevronDown, ChevronUp, CreditCard, Phone, Mail, Sparkles, FileText } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { useAdminOrders } from '../../hooks/useAdminOrders';
 import { Colors } from '../../constants/Colors';
 import { Card } from '../../components/ui/Card';
-import { driverService, Driver } from '../../services/driverService';
+import { driverService, Driver, generateVehicleNumber } from '../../services/driverService';
 import { Order, orderService } from '../../services/orderService';
+import { DriverDebugPanel } from '../../components/DriverDebugPanel';
+import SimpleDeliveryReceipt from '../../components/SimpleDeliveryReceipt';
+import { isCurrentUserAdmin, isCurrentUserAdminAsync } from '../../utils/adminAuth';
+
+// Helper function to get status color
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'pending': return '#FF9500';
+    case 'confirmed': return '#007AFF';
+    case 'in-progress': return '#5856D6';
+    case 'completed': return '#34C759';
+    case 'cancelled': return '#FF3B30';
+    default: return '#8E8E93';
+  }
+};
 
 export default function DispatchScreen() {
-  const { user } = useAuth();
+  // wait for auth to be ready before making decisions
+  const { user, loading: authLoading } = useAuth();
   const { orders, refreshOrders, error } = useAdminOrders();
   const colors = Colors.light;
-  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showDriverModal, setShowDriverModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [assignedOrders, setAssignedOrders] = useState<Set<string>>(new Set());
+  // Map of orderId -> assigned driver name
+  const [assignedDriverNames, setAssignedDriverNames] = useState<Record<string, string>>({});
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [selectedReceiptOrder, setSelectedReceiptOrder] = useState<Order | null>(null);
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
 
-  // Check if user is admin
-  const isAdmin = user?.email === 'admin@kleanly.co.ke';
+  // Check admin status properly using async function
+  useEffect(() => {
+    if (authLoading) return;
+    
+    let mounted = true;
+    (async () => {
+      try {
+        const adminStatus = await isCurrentUserAdminAsync();
+        console.log('🔐 Admin check result:', { 
+          email: user?.email, 
+          isAdmin: adminStatus 
+        });
+        if (mounted) setIsAdmin(adminStatus);
+      } catch (error) {
+        console.error('Admin check error:', error);
+        if (mounted) setIsAdmin(false);
+      }
+    })();
+    
+    return () => { mounted = false; };
+  }, [authLoading, user?.email]);
 
   useEffect(() => {
+    // Wait until auth is settled and admin check is complete
+    if (authLoading || isAdmin === null) return;
+
     if (!isAdmin) {
       Alert.alert(
-        'Access Denied', 
-        `This section is only available to administrators.\n\nRequired: admin@kleanly.co.ke\nCurrent: ${user?.email || 'Not logged in'}`, 
+        'Access Denied',
+        `This section is only available to administrators.\n\nRequired: kleanlyspt@gmail.com\nCurrent: ${user?.email || 'Not logged in'}`,
         [{ text: 'OK', onPress: () => router.back() }]
       );
       return;
     }
-    
+
     console.log('✅ Admin access granted for:', user?.email);
     loadData();
-  }, [isAdmin, user?.email]);
+  }, [authLoading, isAdmin, user?.email]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       await refreshOrders();
       
-      const availableDrivers = await driverService.getAvailableDrivers();
+  // Load all drivers so we can re-use drivers even if they are already busy (multiple concurrent orders)
+  const allDrivers = await driverService.getAllDrivers();
+  // Exclude offline drivers only; allow 'available' and 'busy'
+  const availableDrivers = allDrivers.filter(d => d.status !== 'offline');
       
       // Check for orders that already have drivers assigned
       const currentAssigned = new Set<string>();
       const confirmedOrders = orders.filter(order => order.status === 'confirmed');
       
+      const driverNameMap: Record<string,string> = {};
       for (const order of confirmedOrders) {
         try {
           // Check if this order has tracking data (indicates driver assignment)
           const trackingData = await driverService.getDeliveryTracking(order.id!);
           if (trackingData) {
             currentAssigned.add(order.id!);
+            // Fetch driver name once
+            if (trackingData.driverId) {
+              try {
+                const drv = await driverService.getDriverById(trackingData.driverId);
+                if (drv?.name) driverNameMap[order.id!] = drv.name;
+              } catch {}
+            }
           }
         } catch (error) {
           // No tracking data found, order not assigned
@@ -70,9 +126,10 @@ export default function DispatchScreen() {
       }
       
       setAssignedOrders(currentAssigned);
+      if (Object.keys(driverNameMap).length) setAssignedDriverNames(driverNameMap);
       
       // If no drivers exist, create test drivers
-      if (availableDrivers.length === 0) {
+  if (availableDrivers.length === 0) {
         console.log('No drivers found, creating test drivers...');
         const testDrivers = [
           {
@@ -80,20 +137,108 @@ export default function DispatchScreen() {
             phone: '+254712345678',
             email: 'john.driver@kleanly.co.ke',
             vehicleType: 'motorcycle' as const,
-            vehicleNumber: 'KCA 123A',
+            vehicleNumber: generateVehicleNumber('motorcycle'),
             status: 'available' as const,
             rating: 4.8,
             totalDeliveries: 245,
+            totalEarnings: 25000,
+            averageDeliveryTime: 22,
+            completionRate: 98,
+            customerRatings: [],
+            pendingPayouts: 0,
+            activeDeliveries: 0,
+            location: null,
+            isOnline: true,
+            lastActiveAt: new Date().toISOString(),
+            performance: {
+              todayDeliveries: 5,
+              weeklyDeliveries: 28,
+              monthlyDeliveries: 120,
+              todayEarnings: 2500,
+              weeklyEarnings: 12000,
+              monthlyEarnings: 48000
+            },
+            preferences: {
+              maxRadius: 25,
+              preferredAreas: ['Nairobi CBD', 'Westlands', 'Karen'],
+              notifications: {
+                orders: true,
+                payments: true,
+                promotions: false
+              }
+            }
           },
           {
             name: 'Mary Wanjiku',
             phone: '+254723456789',
             email: 'mary.driver@kleanly.co.ke',
             vehicleType: 'car' as const,
-            vehicleNumber: 'KCB 456B',
+            vehicleNumber: generateVehicleNumber('car'),
             status: 'available' as const,
             rating: 4.6,
             totalDeliveries: 189,
+            totalEarnings: 19500,
+            averageDeliveryTime: 25,
+            completionRate: 96,
+            customerRatings: [],
+            pendingPayouts: 0,
+            activeDeliveries: 0,
+            location: null,
+            isOnline: true,
+            lastActiveAt: new Date().toISOString(),
+            performance: {
+              todayDeliveries: 3,
+              weeklyDeliveries: 22,
+              monthlyDeliveries: 95,
+              todayEarnings: 1800,
+              weeklyEarnings: 9500,
+              monthlyEarnings: 38000
+            },
+            preferences: {
+              maxRadius: 30,
+              preferredAreas: ['Kileleshwa', 'Lavington', 'Kilimani'],
+              notifications: {
+                orders: true,
+                payments: true,
+                promotions: true
+              }
+            }
+          },
+          {
+            name: 'Peter Otieno',
+            phone: '+254734567890',
+            email: 'peter.driver@kleanly.co.ke',
+            vehicleType: 'van' as const,
+            vehicleNumber: generateVehicleNumber('van'),
+            status: 'available' as const,
+            rating: 4.9,
+            totalDeliveries: 312,
+            totalEarnings: 42000,
+            averageDeliveryTime: 28,
+            completionRate: 99,
+            customerRatings: [],
+            pendingPayouts: 0,
+            activeDeliveries: 0,
+            location: null,
+            isOnline: true,
+            lastActiveAt: new Date().toISOString(),
+            performance: {
+              todayDeliveries: 7,
+              weeklyDeliveries: 35,
+              monthlyDeliveries: 150,
+              todayEarnings: 3500,
+              weeklyEarnings: 15000,
+              monthlyEarnings: 60000
+            },
+            preferences: {
+              maxRadius: 40,
+              preferredAreas: ['Industrial Area', 'South B', 'South C', 'Embakasi'],
+              notifications: {
+                orders: true,
+                payments: true,
+                promotions: false
+              }
+            }
           }
         ];
         
@@ -112,6 +257,12 @@ export default function DispatchScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSendReceipt = (order: Order) => {
+    console.log('Admin: Sending receipt for order:', order.id);
+    setSelectedReceiptOrder(order);
+    setShowReceiptModal(true);
   };
 
   const handleAssignDriver = (order: Order) => {
@@ -134,7 +285,8 @@ export default function DispatchScreen() {
       const deliveryLocation = {
         latitude: -1.2921 + (Math.random() - 0.5) * 0.1, // Random nearby location
         longitude: 36.8219 + (Math.random() - 0.5) * 0.1,
-        address: selectedOrder.address
+  // Prepend estate to address so drivers instantly see estate context
+  address: selectedOrder.estate ? `${selectedOrder.estate}, ${selectedOrder.address}` : selectedOrder.address
       };
 
       const trackingId = await driverService.assignDriverToOrder(
@@ -213,11 +365,58 @@ export default function DispatchScreen() {
     });
   };
 
+  const toggleOrderExpansion = (orderId: string) => {
+    setExpandedOrders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  };
+
+  const renderOrderItems = (order: Order) => {
+    if (!order.items || order.items.length === 0) {
+      return (
+        <Text style={[styles.noItemsText, { color: colors.textSecondary }]}>
+          No detailed items available
+        </Text>
+      );
+    }
+
+    return order.items.map((item, index) => (
+      <View key={index} style={styles.orderItemRow}>
+        <Text style={[styles.orderItemName, { color: colors.text }]}>
+          • {item}
+        </Text>
+      </View>
+    ));
+  };
+
+  const getPaymentMethodIcon = (method: string) => {
+    switch (method?.toLowerCase()) {
+      case 'mpesa':
+        return '📱';
+      case 'cash':
+        return '💵';
+      case 'card':
+        return '💳';
+      default:
+        return '💰';
+    }
+  };
+
   // Filter orders that need driver assignment (pending or confirmed without driver)
   const ordersNeedingAssignment = orders.filter((order) => 
     order.status === 'pending' || order.status === 'confirmed'
   );
 
+  // Prevent UI render until auth finished and admin check complete
+  if (authLoading || isAdmin === null) {
+    return null; // or a small loading indicator if you prefer
+  }
   if (!isAdmin) {
     return null;
   }
@@ -234,6 +433,9 @@ export default function DispatchScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Dispatch Center</Text>
         <View style={styles.headerButtons}>
+          <TouchableOpacity onPress={() => setShowDebugPanel(true)} style={styles.debugButton}>
+            <Text style={styles.debugButtonText}>🔧 Debug</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => loadData()} style={styles.refreshButton}>
             <RefreshCw size={24} color="#FFFFFF" />
           </TouchableOpacity>
@@ -307,7 +509,7 @@ export default function DispatchScreen() {
           </Card>
         ) : (
           ordersNeedingAssignment.map((order) => (
-            <Card key={order.id} style={styles.orderCard}>
+            <Card key={`assignment-${order.id}`} style={styles.orderCard}>
               <View style={styles.orderHeader}>
                 <View style={styles.orderInfo}>
                   <Text style={[styles.orderId, { color: colors.text }]}>
@@ -317,16 +519,27 @@ export default function DispatchScreen() {
                     {formatDate(order.createdAt)}
                   </Text>
                 </View>
-                <View style={[
-                  styles.statusBadge,
-                  { backgroundColor: getAdminStatusColor(order) + '20' }
-                ]}>
-                  <Text style={[
-                    styles.statusText,
-                    { color: getAdminStatusColor(order) }
+                <View style={styles.orderHeaderActions}>
+                  <View style={[
+                    styles.statusBadge,
+                    { backgroundColor: getAdminStatusColor(order) + '20' }
                   ]}>
-                    {getAdminDisplayStatus(order)}
-                  </Text>
+                    <Text style={[
+                      styles.statusText,
+                      { color: getAdminStatusColor(order) }
+                    ]}>
+                      {getAdminDisplayStatus(order)}
+                    </Text>
+                  </View>
+                  <TouchableOpacity 
+                    onPress={() => toggleOrderExpansion(order.id!)}
+                    style={styles.expandButton}
+                  >
+                    {expandedOrders.has(order.id!) ? 
+                      <ChevronUp size={20} color={colors.textSecondary} /> : 
+                      <ChevronDown size={20} color={colors.textSecondary} />
+                    }
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -334,7 +547,8 @@ export default function DispatchScreen() {
                 <View style={styles.detailRow}>
                   <Package size={16} color={colors.primary} />
                   <Text style={[styles.detailText, { color: colors.text }]}>
-                    {(order.category || 'service').replace('-', ' ').toUpperCase()}
+                    {(order.category || 'service').replace('-', ' ').toUpperCase()
+                    }
                   </Text>
                 </View>
                 
@@ -344,6 +558,26 @@ export default function DispatchScreen() {
                     {order.address}
                   </Text>
                 </View>
+                {order.estate && (
+                  <View style={[styles.detailRow, { marginTop: -4 }]}> 
+                    <View style={{
+                      backgroundColor: '#e0f2fe',
+                      paddingHorizontal: 10,
+                      paddingVertical: 4,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: '#7dd3fc'
+                    }}>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: '#075985' }}>Estate: {order.estate}</Text>
+                    </View>
+                  </View>
+                )}
+                {assignedOrders.has(order.id!) && assignedDriverNames[order.id!] && (
+                  <View style={[styles.detailRow, { marginTop: 4 }]}> 
+                    <Truck size={16} color={colors.primary} />
+                    <Text style={[styles.detailText, { color: colors.text }]}>Driver: {assignedDriverNames[order.id!]}</Text>
+                  </View>
+                )}
                 
                 <View style={styles.detailRow}>
                   <Clock size={16} color={colors.warning} />
@@ -352,6 +586,147 @@ export default function DispatchScreen() {
                   </Text>
                 </View>
               </View>
+
+              {/* Payment Status Badge - NEWLY ADDED */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View
+                  style={[
+                    styles.badge,
+                    order.paymentStatus === 'paid' ? styles.badgePaid : styles.badgeUnpaid,
+                  ]}
+                >
+                  <Text style={styles.badgeText}>
+                    {order.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}
+                  </Text>
+                </View>
+                {order.paymentMethod ? (
+                  <Text style={{ color: '#4A7FA7' }}>
+                    {order.paymentMethod.toUpperCase()}
+                  </Text>
+                ) : null}
+              </View>
+
+              {/* Expanded Details */}
+              {expandedOrders.has(order.id!) && (
+                <View style={styles.expandedDetails}>
+                  <View style={[styles.separator, { backgroundColor: colors.border }]} />
+                  
+                  {/* Customer Information */}
+                  <View style={styles.detailSection}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                      👤 Customer Information
+                    </Text>
+                    {order.customerName && (
+                      <View style={styles.detailRow}>
+                        <User size={14} color={colors.textSecondary} />
+                        <Text style={[styles.detailText, { color: colors.text }]}>
+                          {order.customerName}
+                        </Text>
+                      </View>
+                    )}
+                    {order.customerName && (
+                      <View style={styles.detailRow}>
+                        <Phone size={14} color={colors.textSecondary} />
+                        <Text style={[styles.detailText, { color: colors.text }]}>
+                          {order.customerName}
+                        </Text>
+                      </View>
+                    )}
+                    {order.customerEmail && (
+                      <View style={styles.detailRow}>
+                        <Mail size={14} color={colors.textSecondary} />
+                        <Text style={[styles.detailText, { color: colors.text }]}>
+                          {order.customerEmail}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Order Items */}
+                  <View style={styles.detailSection}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                      📦 Order Items
+                    </Text>
+                    <View style={styles.itemsList}>
+                      {renderOrderItems(order)}
+                    </View>
+                  </View>
+
+                  {/* Payment & Special Requests */}
+                  <View style={styles.detailSection}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                      💳 Payment & Extras
+                    </Text>
+                    
+                    {/* Extract payment method from notes */}
+                    {order.notes && order.notes.includes('Payment:') && (
+                      <View style={styles.detailRow}>
+                        <CreditCard size={14} color={colors.textSecondary} />
+                        <Text style={[styles.detailText, { color: colors.text }]}>
+                          {getPaymentMethodIcon(order.notes.split('Payment: ')[1]?.split(',')[0] || 'unknown')} {order.notes.split('Payment: ')[1]?.split(',')[0] || 'Not specified'}
+                        </Text>
+                      </View>
+                    )}
+                    
+                    {/* Extract scent information from notes */}
+                    {order.notes && order.notes.includes('Scent:') && (
+                      <View style={styles.detailRow}>
+                        <Sparkles size={14} color={colors.textSecondary} />
+                        <Text style={[styles.detailText, { color: colors.text }]}>
+                          🌸 {order.notes.split('Scent: ')[1]?.split(',')[0] || 'Selected'}
+                        </Text>
+                      </View>
+                    )}
+                    
+                    {/* Order Type */}
+                    {order.notes && order.notes.includes('Order Type:') && (
+                      <View style={styles.detailRow}>
+                        <Package size={14} color={colors.textSecondary} />
+                        <Text style={[styles.detailText, { color: colors.text }]}>
+                          📋 {order.notes.split('Order Type: ')[1]?.split(',')[0] || 'Standard'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Schedule Information */}
+                  <View style={styles.detailSection}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                      ⏰ Schedule
+                    </Text>
+                    {order.pickupTime && (
+                      <View style={styles.detailRow}>
+                        <Clock size={14} color={colors.textSecondary} />
+                        <Text style={[styles.detailText, { color: colors.text }]}>
+                          Pickup: {order.pickupTime}
+                        </Text>
+                      </View>
+                    )}
+                    {order.preferredDeliveryTime && (
+                      <View style={styles.detailRow}>
+                        <Clock size={14} color={colors.textSecondary} />
+                        <Text style={[styles.detailText, { color: colors.text }]}>
+                          Delivery: {order.preferredDeliveryTime}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Additional Notes */}
+                  {order.notes && (
+                    <View style={styles.detailSection}>
+                      <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                        📝 Notes
+                      </Text>
+                      <View style={[styles.notesContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <Text style={[styles.notesText, { color: colors.textSecondary }]}>
+                          {order.notes}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
 
               {assignedOrders.has(order.id!) ? (
                 <View style={[styles.assignedBadge, { backgroundColor: '#10B981' + '20' }]}>
@@ -374,6 +749,106 @@ export default function DispatchScreen() {
                   </TouchableOpacity>
                 </LinearGradient>
               )}
+            </Card>
+          ))
+        )}
+        
+        {/* All Orders - For Receipt Management */}
+        <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 32 }]}>
+          All Orders - Receipt Management
+        </Text>
+        
+        {orders.length === 0 ? (
+          <Card style={styles.emptyCard}>
+            <Package size={48} color={colors.textSecondary} />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+              No Orders Found
+            </Text>
+            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+              No orders available for receipt management
+            </Text>
+          </Card>
+        ) : (
+          orders.map((order) => (
+            <Card key={`receipt-${order.id}`} style={styles.orderCard}>
+              <View style={styles.orderHeader}>
+                <View style={styles.orderInfo}>
+                  <Text style={[styles.orderId, { color: colors.text }]}>
+                    {formatOrderId(order.id)}
+                  </Text>
+                  <Text style={[styles.orderDate, { color: colors.textSecondary }]}>
+                    {formatDate(order.createdAt)}
+                  </Text>
+                </View>
+                <View style={[
+                  styles.statusBadge,
+                  { backgroundColor: getStatusColor(order.status) + '20' }
+                ]}>
+                  <Text style={[
+                    styles.statusText,
+                    { color: getStatusColor(order.status) }
+                  ]}>
+                    {getAdminDisplayStatus(order)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.orderDetails}>
+                <View style={styles.detailRow}>
+                  <Package size={16} color={colors.primary} />
+                  <Text style={[styles.detailText, { color: colors.text }]}>
+                    {(order.category || 'service').replace('-', ' ').toUpperCase()}
+                  </Text>
+                </View>
+                
+                <View style={styles.detailRow}>
+                  <MapPin size={16} color={colors.success} />
+                  <Text style={[styles.detailText, { color: colors.text }]}>
+                    {order.address}
+                  </Text>
+                </View>
+                {order.estate && (
+                  <View style={[styles.detailRow, { marginTop: -4 }]}> 
+                    <View style={{
+                      backgroundColor: '#e0f2fe',
+                      paddingHorizontal: 10,
+                      paddingVertical: 4,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: '#7dd3fc'
+                    }}>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: '#075985' }}>Estate: {order.estate}</Text>
+                    </View>
+                  </View>
+                )}
+                {assignedOrders.has(order.id!) && assignedDriverNames[order.id!] && (
+                  <View style={[styles.detailRow, { marginTop: 4 }]}> 
+                    <Truck size={16} color={colors.primary} />
+                    <Text style={[styles.detailText, { color: colors.text }]}>Driver: {assignedDriverNames[order.id!]}</Text>
+                  </View>
+                )}
+                
+                <View style={styles.detailRow}>
+                  <Clock size={16} color={colors.warning} />
+                  <Text style={[styles.detailText, { color: colors.text }]}>
+                    KSH {(order.total || 0).toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Send Receipt Button - Available for all orders */}
+              <LinearGradient
+                colors={['#059669', '#059669' + 'E6']}
+                style={styles.assignButtonGradient}
+              >
+                <TouchableOpacity
+                  style={styles.assignButton}
+                  onPress={() => handleSendReceipt(order)}
+                >
+                  <Package size={20} color="#FFFFFF" />
+                  <Text style={styles.assignButtonText}>Send Receipt</Text>
+                </TouchableOpacity>
+              </LinearGradient>
             </Card>
           ))
         )}
@@ -408,7 +883,7 @@ export default function DispatchScreen() {
                   Order {formatOrderId(selectedOrder.id)}
                 </Text>
                 <Text style={[styles.selectedOrderDetails, { color: colors.textSecondary }]}>
-                  {selectedOrder.category.replace('-', ' ')} • {selectedOrder.address}
+                  {selectedOrder.category.replace('-', ' ')} • {selectedOrder.estate ? `${selectedOrder.estate}, ` : ''}{selectedOrder.address}
                 </Text>
               </Card>
             )}
@@ -428,48 +903,95 @@ export default function DispatchScreen() {
                 </Text>
               </Card>
             ) : (
-              drivers.map((driver) => (
-                <TouchableOpacity
-                  key={driver.id}
-                  onPress={() => {
-                    Alert.alert(
-                      'Assign Driver',
-                      `Assign ${driver.name} to order #${selectedOrder?.id?.slice(-6).toUpperCase()}?`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        { text: 'Assign', onPress: () => confirmDriverAssignment(driver) }
-                      ]
-                    );
-                  }}
-                >
-                  <Card style={styles.driverCard}>
-                    <View style={styles.driverInfo}>
-                      <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '20' }]}>
-                        <Text style={[styles.driverInitial, { color: colors.primary }]}>
-                          {driver.name.charAt(0).toUpperCase()}
-                        </Text>
+              drivers.map((driver) => {
+                const statusColor = driver.status === 'available' ? colors.success : driver.status === 'busy' ? colors.warning : colors.error;
+                const badgeLabel = driver.status.toUpperCase();
+                return (
+                  <TouchableOpacity
+                    key={driver.id}
+                    onPress={() => {
+                      const warning = driver.status === 'busy' ? '\n\nNote: Driver is currently BUSY and will have multiple active orders.' : '';
+                      Alert.alert(
+                        'Assign Driver',
+                        `Assign ${driver.name} to order #${selectedOrder?.id?.slice(-6).toUpperCase()}?${warning}`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Assign', onPress: () => confirmDriverAssignment(driver) }
+                        ]
+                      );
+                    }}
+                  >
+                    <Card style={styles.driverCard}>
+                      <View style={styles.driverInfo}>
+                        <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '20' }]}>
+                          <Text style={[styles.driverInitial, { color: colors.primary }]}>
+                            {driver.name?.charAt(0)?.toUpperCase() || 'D'}
+                          </Text>
+                        </View>
+                        <View style={styles.driverDetails}>
+                          <Text style={[styles.driverName, { color: colors.text }]}>
+                            {driver.name || 'Unknown Driver'}
+                          </Text>
+                          <Text style={[styles.driverVehicle, { color: colors.textSecondary }]}>
+                            {driver.vehicleType ? (driver.vehicleType.charAt(0)?.toUpperCase() + driver.vehicleType.slice(1)) : 'Unknown'} • {driver.vehicleNumber || 'No plate'}
+                          </Text>
+                          <Text style={[styles.driverRating, { color: colors.warning }]}>
+                            ⭐ {driver.rating?.toFixed(1) || '0.0'} ({driver.totalDeliveries || 0} deliveries)
+                          </Text>
+                        </View>
+                        <View style={[styles.availableBadge, { backgroundColor: statusColor }]}>
+                          <Text style={styles.availableText}>{badgeLabel}</Text>
+                        </View>
                       </View>
-                      <View style={styles.driverDetails}>
-                        <Text style={[styles.driverName, { color: colors.text }]}>
-                          {driver.name}
-                        </Text>
-                        <Text style={[styles.driverVehicle, { color: colors.textSecondary }]}>
-                          {driver.vehicleType.charAt(0).toUpperCase() + driver.vehicleType.slice(1)} • {driver.vehicleNumber}
-                        </Text>
-                        <Text style={[styles.driverRating, { color: colors.warning }]}>
-                          ⭐ {driver.rating.toFixed(1)} ({driver.totalDeliveries} deliveries)
-                        </Text>
-                      </View>
-                      <View style={[styles.availableBadge, { backgroundColor: colors.success }]}>
-                        <Text style={styles.availableText}>AVAILABLE</Text>
-                      </View>
-                    </View>
-                  </Card>
-                </TouchableOpacity>
-              ))
-            )}
-          </ScrollView>
+                    </Card>
+                  </TouchableOpacity>
+                );
+    })
+  )}
+</ScrollView>
         </SafeAreaView>
+      </Modal>
+
+      {/* Debug Panel */}
+      <DriverDebugPanel 
+        visible={showDebugPanel} 
+        onClose={() => setShowDebugPanel(false)} 
+      />
+
+      {/* Receipt Modal */}
+      <Modal
+        visible={showReceiptModal && selectedReceiptOrder !== null}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => {
+          setShowReceiptModal(false);
+          setSelectedReceiptOrder(null);
+        }}
+      >
+        {selectedReceiptOrder && (
+          <SafeAreaView style={{ flex: 1 }}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Delivery Receipt
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowReceiptModal(false);
+                  setSelectedReceiptOrder(null);
+                }}
+                style={styles.modalCloseButton}
+              >
+                <Text style={[styles.modalCloseText, { color: colors.primary }]}>
+                  Close
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <SimpleDeliveryReceipt 
+              order={selectedReceiptOrder} visible={false} onClose={function (): void {
+                throw new Error('Function not implemented.');
+              } }            />
+          </SafeAreaView>
+        )}
       </Modal>
     </SafeAreaView>
   );
@@ -757,4 +1279,68 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
   },
+  debugButton: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  debugButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // Enhanced order details styles
+  orderHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  expandButton: {
+    padding: 4,
+  },
+  expandedDetails: {
+    marginTop: 16,
+  },
+  separator: {
+    height: 1,
+    marginVertical: 16,
+  },
+  detailSection: {
+    marginBottom: 16,
+  },
+  detailSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  itemsList: {
+    marginLeft: 8,
+  },
+  orderItemRow: {
+    marginBottom: 4,
+  },
+  orderItemName: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  noItemsText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  notesContainer: {
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  notesText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  // New styles for payment status badge
+  badge: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999 },
+  badgePaid: { backgroundColor: '#16a34a20', borderWidth: 1, borderColor: '#16a34a' },
+  badgeUnpaid: { backgroundColor: '#dc262620', borderWidth: 1, borderColor: '#dc2626' },
+  badgeText: { color: '#0A1931', fontWeight: '700' },
 });

@@ -454,7 +454,7 @@ export default function AddressesScreen() {
                         },
                       ]}
                     >
-                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                      {type ? (type.charAt(0)?.toUpperCase() + type.slice(1)) : 'Unknown'}
                     </Text>
                   </TouchableOpacity>
                 ))}

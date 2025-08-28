@@ -232,12 +232,12 @@ export const EnhancedOrderFlow: React.FC<EnhancedOrderFlowProps> = ({
           <View style={styles.driverCard}>
             <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '20' }]}>
               <Text style={[styles.driverInitial, { color: colors.primary }]}>
-                {driverInfo.name.charAt(0).toUpperCase()}
+                {driverInfo.name?.charAt(0)?.toUpperCase() || 'D'}
               </Text>
             </View>
             <View style={styles.driverInfo}>
               <Text style={[styles.driverName, { color: colors.text }]}>
-                {driverInfo.name}
+                {driverInfo.name || 'Unknown Driver'}
               </Text>
               <Text style={[styles.driverDetails, { color: colors.textSecondary }]}>
                 {driverInfo.vehicleType} • {driverInfo.vehicleNumber}

@@ -8,6 +8,7 @@ import {
   ScrollView,
   Share,
   Alert,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { X, CircleCheck as CheckCircle, Package, Clock, MapPin, Phone, Star, Share2, MessageCircle, Truck, Sparkles, Gift, Receipt, Calendar } from 'lucide-react-native';
@@ -44,7 +45,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
 
   const handleShare = async () => {
     try {
-      const message = `  Just booked laundry with Kleanly!\n\nOrder: ${orderData.orderId}\nService: ${orderData.service}\nTotal: KSH ${(orderData.total || 0).toLocaleString()}\n\nTry Kleanly for premium laundry services!`;
+      const message = `Just booked laundry with Kleanly!\n\nOrder: ${orderData.orderId}\nService: ${orderData.service}\nTotal: KSH ${(orderData.total || 0).toLocaleString()}\n\nTry Kleanly for premium laundry services!`;
       
       await Share.share({
         message,
@@ -56,16 +57,16 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
   };
 
   const handleWhatsApp = () => {
-    Alert.alert(
-      'WhatsApp Support',
-      'Opening WhatsApp to chat with our support team...',
-      [{ text: 'OK' }]
-    );
+    const message = `Hi! I have a question about my order #${orderData.orderId}`;
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    Linking.openURL(whatsappUrl).catch(() => {
+      Alert.alert('WhatsApp not installed', 'Please install WhatsApp to use this feature');
+    });
   };
 
   const handleReferral = () => {
     Alert.alert(
-      '🎁 Referral Program',
+      'Referral Program',
       'Invite friends and earn KSH 200 credit for each successful referral!',
       [
         { text: 'Maybe Later', style: 'cancel' },
@@ -101,9 +102,9 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
               <CheckCircle size={64} color="#FFFFFF" />
               <View style={styles.successGlow} />
             </View>
-            <Text style={styles.headerTitle}>  Order Confirmed!</Text>
+            <Text style={styles.headerTitle}>Order Confirmed!</Text>
             <Text style={styles.headerSubtitle}>
-              {orderData.isPaid ? '✅ Payment Successful' : '  Pay on Pickup'}
+              {orderData.isPaid ? 'Payment Successful' : 'Pay on Pickup'}
             </Text>
             <View style={styles.orderIdContainer}>
               <Text style={styles.orderIdLabel}>Order ID:</Text>
@@ -129,19 +130,31 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
               <Share2 size={20} color={colors.primary} />
               <Text style={[styles.quickActionText, { color: colors.primary }]}>Share</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.quickActionButton, { backgroundColor: colors.warning + '20' }]}
-              onPress={onViewReceipt}
-            >
-              <Receipt size={20} color={colors.warning} />
-              <Text style={[styles.quickActionText, { color: colors.warning }]}>Receipt</Text>
-            </TouchableOpacity>
+            
+            {/* Only show receipt button if payment is confirmed */}
+            {orderData.isPaid ? (
+              <TouchableOpacity 
+                style={[styles.quickActionButton, { backgroundColor: colors.success + '20' }]}
+                onPress={onViewReceipt}
+              >
+                <Receipt size={20} color={colors.success} />
+                <Text style={[styles.quickActionText, { color: colors.success }]}>Receipt</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity 
+                style={[styles.quickActionButton, { backgroundColor: colors.warning + '20', opacity: 0.6 }]}
+                disabled={true}
+              >
+                <Clock size={20} color={colors.warning} />
+                <Text style={[styles.quickActionText, { color: colors.warning }]}>Pending</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Order Details */}
           <Card style={styles.orderCard}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                Order Details
+              Order Details
             </Text>
             
             <View style={styles.orderInfo}>
@@ -189,7 +202,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
           {/* What's Next Timeline */}
           <Card style={styles.timelineCard}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                What Happens Next?
+              What Happens Next?
             </Text>
             <View style={styles.timeline}>
               <View style={styles.timelineStep}>
@@ -198,7 +211,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 </View>
                 <View style={styles.timelineContent}>
                   <Text style={[styles.timelineTitle, { color: colors.text }]}>
-                      Pickup Scheduled
+                    Pickup Scheduled
                   </Text>
                   <Text style={[styles.timelineDescription, { color: colors.textSecondary }]}>
                     We'll collect your items at {orderData.pickupTime}
@@ -212,7 +225,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 </View>
                 <View style={styles.timelineContent}>
                   <Text style={[styles.timelineTitle, { color: colors.text }]}>
-                    ✨ Professional Cleaning
+                    Professional Cleaning
                   </Text>
                   <Text style={[styles.timelineDescription, { color: colors.textSecondary }]}>
                     Your items will be cleaned with premium care
@@ -226,7 +239,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                 </View>
                 <View style={styles.timelineContent}>
                   <Text style={[styles.timelineTitle, { color: colors.text }]}>
-                      Fresh Delivery
+                    Fresh Delivery
                   </Text>
                   <Text style={[styles.timelineDescription, { color: colors.textSecondary }]}>
                     Clean items delivered back within 24-48 hours
@@ -247,7 +260,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
                   <Gift size={32} color={colors.warning} />
                 </View>
                 <Text style={[styles.bonusTitle, { color: colors.text }]}>
-                  🎁 Earn KSH 200!
+                  Earn KSH 200!
                 </Text>
                 <Text style={[styles.bonusDescription, { color: colors.textSecondary }]}>
                   Refer a friend and both get KSH 200 credit!
@@ -266,7 +279,7 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
           {/* Payment Status */}
           <Card style={styles.paymentCard}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              💳 Payment Status
+              Payment Status
             </Text>
             <View style={styles.paymentStatus}>
               <View style={[
@@ -288,7 +301,13 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
             
             {!orderData.isPaid && (
               <Text style={[styles.paymentNote, { color: colors.textSecondary }]}>
-                  You'll receive a receipt when you pay during pickup
+                Receipt will be available after payment confirmation
+              </Text>
+            )}
+            
+            {orderData.isPaid && (
+              <Text style={[styles.paymentNote, { color: colors.success }]}>
+                Payment confirmed - Receipt available below
               </Text>
             )}
           </Card>
@@ -296,13 +315,27 @@ export const OrderSuccessModal: React.FC<OrderSuccessModalProps> = ({
 
         {/* Action Buttons */}
         <View style={[styles.actionButtons, { backgroundColor: colors.background }]}>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.receiptButton, { backgroundColor: colors.surface, borderColor: colors.primary }]}
-            onPress={onViewReceipt}
-          >
-            <Receipt size={20} color={colors.primary} />
-            <Text style={[styles.actionButtonText, { color: colors.primary }]}>View Receipt</Text>
-          </TouchableOpacity>
+          {/* Only show receipt button if payment is confirmed */}
+          {orderData.isPaid && (
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.receiptButton, { backgroundColor: colors.surface, borderColor: colors.primary }]}
+              onPress={onViewReceipt}
+            >
+              <Receipt size={20} color={colors.primary} />
+              <Text style={[styles.actionButtonText, { color: colors.primary }]}>View Receipt</Text>
+            </TouchableOpacity>
+          )}
+          
+          {/* Show payment pending message if not paid */}
+          {!orderData.isPaid && (
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.pendingButton, { backgroundColor: colors.warning + '20', borderColor: colors.warning }]}
+              disabled={true}
+            >
+              <Clock size={20} color={colors.warning} />
+              <Text style={[styles.actionButtonText, { color: colors.warning }]}>Receipt Pending Payment</Text>
+            </TouchableOpacity>
+          )}
           
           <TouchableOpacity 
             style={[styles.actionButton, styles.doneButton]}
@@ -583,6 +616,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 16,
     gap: 8,
+  },
+  pendingButton: {
+    borderWidth: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+    opacity: 0.7,
   },
   actionButtonText: {
     fontSize: 16,

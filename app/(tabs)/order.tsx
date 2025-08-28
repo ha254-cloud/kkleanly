@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { InteractionManager } from 'react-native';
 import {
   View,
   Text,
@@ -16,7 +17,9 @@ import {
   TextStyle,
   ImageStyle,
   StyleProp,
+  Modal,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 // Helper functions to handle type assertions
 const asViewStyle = (style: any): StyleProp<ViewStyle> => style as StyleProp<ViewStyle>;
@@ -26,7 +29,7 @@ const asArrayViewStyle = (styles: any[]): StyleProp<ViewStyle>[] => styles as St
 const asArrayTextStyle = (styles: any[]): StyleProp<TextStyle>[] => styles as StyleProp<TextStyle>[];
 const asArrayImageStyle = (styles: any[]): StyleProp<ImageStyle>[] => styles as StyleProp<ImageStyle>[];
 import { StatusBar } from 'expo-status-bar';
-import { Plus, Minus, ShoppingCart, MapPin, Clock, Phone, Sparkles, Package2, Info, Calendar } from 'lucide-react-native';
+import { Plus, Minus, ShoppingCart, MapPin, Clock, Phone, Sparkles, Package2, Info, Calendar, ChevronRight } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -36,11 +39,17 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { PaymentModal } from '../../components/PaymentModal';
 import { OrderConfirmationModal } from '../../components/OrderConfirmationModal';
-import { ReceiptModal } from '../../components/ReceiptModal';
+import TimeSelectionModal from '../../components/TimeSelectionModal';
 import { WhatsAppButton } from '../../components/ui/WhatsAppButton';
+import ModernLocationPicker from '../../components/ModernLocationPicker';
 import { orderService } from '../../services/orderService';
 import { notificationService } from '../../services/notificationService';
-
+import { mapsService } from '../../services/mapsService';
+import { getSavedAddresses, SavedAddress, addSavedAddress } from '../../services/userProfileService';
+// Utility function to generate unique keys
+const generateUniqueKey = (prefix: string, id: string | undefined, index: number): string => {
+  return `${prefix}-${id || 'unknown'}-${index}-${Date.now()}`;
+};
 const { width } = Dimensions.get('window');
 
 interface ServiceItem {
@@ -166,6 +175,66 @@ const serviceCategories = [
   },
 ];
 
+// Scent options available in Kenya
+const scentOptions = [
+  {
+    id: 'none',
+    name: 'No Added Scent',
+    description: 'Standard clean without additional fragrance',
+    price: 0,
+    popular: false,
+    icon: '🌿'
+  },
+  {
+    id: 'fresh-linen',
+    name: 'Fresh Linen',
+    description: 'Clean, crisp cotton-like freshness',
+    price: 50,
+    popular: true,
+    icon: '🌬️'
+  },
+  {
+    id: 'lavender',
+    name: 'Lavender Sensations',
+    description: 'Calming floral lavender fragrance',
+    price: 60,
+    popular: true,
+    icon: '🌸'
+  },
+  {
+    id: 'spring-fresh',
+    name: 'Spring Sensations',
+    description: 'Light, refreshing spring meadow scent',
+    price: 55,
+    popular: false,
+    icon: '🌺'
+  },
+  {
+    id: 'tropical',
+    name: 'Tropical Sensations',
+    description: 'Vibrant tropical island fragrance',
+    price: 55,
+    popular: false,
+    icon: '🌴'
+  },
+  {
+    id: 'lily-fresh',
+    name: 'Lily Fresh',
+    description: 'Elegant white lily floral scent',
+    price: 60,
+    popular: false,
+    icon: '🌼'
+  },
+  {
+    id: 'morning-meadow',
+    name: 'Morning Meadow',
+    description: 'Soft, natural meadow freshness',
+    price: 55,
+    popular: false,
+    icon: '🌅'
+  }
+];
+
 export default function BookServiceScreen() {
   const { isDark } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
@@ -177,12 +246,72 @@ export default function BookServiceScreen() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [bagCart, setBagCart] = useState<BagCartItem[]>([]);
   const [address, setAddress] = useState('');
+  const [addressEstate, setAddressEstate] = useState('');
+  const [addressDetails, setAddressDetails] = useState({
+    buildingName: '',
+    floorNumber: '',
+    doorNumber: '',
+    additionalInfo: '',
+    label: '',
+    placeType: ''
+  });
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<any>(null);
   const [orderStep, setOrderStep] = useState<'cart' | 'payment' | 'processing' | 'confirmed'>('cart');
+  const [showTimeModal, setShowTimeModal] = useState(false);
+  const [pickupTime, setPickupTime] = useState<string>('');
+  const [deliveryTime, setDeliveryTime] = useState<string>('');
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [useManualAddress, setUseManualAddress] = useState(false);
+  const [selectedScent, setSelectedScent] = useState<string>('none');
+  const [showScentModal, setShowScentModal] = useState(false);
+  const [showAddressDetailsModal, setShowAddressDetailsModal] = useState(false);
+  const [additionalInfo, setAdditionalInfo] = useState('');
+  const lastPickerPickRef = useRef<number | null>(null);
+  const latestAddressRef = useRef<string>('');
+
+  useEffect(() => { latestAddressRef.current = address; }, [address]);
+  // Simplified address details (floating card) – removed chips & auto-resize for clarity
+
+  // Load saved addresses and auto-populate default address
+  useEffect(() => {
+    const loadSavedAddresses = async () => {
+      if (user?.uid) {
+        try {
+          const addresses = await getSavedAddresses(user.uid);
+          setSavedAddresses(addresses);
+          
+          // Auto-populate with default address if available
+          const defaultAddress = addresses.find(addr => addr.isDefault);
+          if (defaultAddress && !address) {
+            setAddress(defaultAddress.address);
+          }
+        } catch (error) {
+          console.error('Error loading saved addresses:', error);
+        }
+      }
+    };
+
+    loadSavedAddresses();
+  }, [user?.uid]);
+
+  // Fallback: if address just set via picker and modal not yet opened, open automatically
+  useEffect(() => {
+    if (lastPickerPickRef.current) {
+      const elapsed = Date.now() - lastPickerPickRef.current;
+      if (elapsed < 3000 && address && !showAddressDetailsModal) {
+        const timer = setTimeout(() => {
+          if (!showAddressDetailsModal) setShowAddressDetailsModal(true);
+        }, 250); // short fallback delay
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [address, showAddressDetailsModal]);
 
   const addToCart = (service: ServiceItem) => {
     setCart(prev => {
@@ -241,10 +370,13 @@ export default function BookServiceScreen() {
   };
 
   const getCartTotal = () => {
+    const selectedScentOption = scentOptions.find(scent => scent.id === selectedScent);
+    const scentPrice = selectedScentOption ? selectedScentOption.price : 0;
+    
     if (orderType === 'per-item') {
-      return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+      return cart.reduce((total, item) => total + (item.price * item.quantity), 0) + scentPrice;
     } else {
-      return bagCart.reduce((total, item) => total + (item.price * item.quantity), 0);
+      return bagCart.reduce((total, item) => total + (item.price * item.quantity), 0) + scentPrice;
     }
   };
 
@@ -254,6 +386,68 @@ export default function BookServiceScreen() {
     } else {
       return bagCart.reduce((total, item) => total + item.quantity, 0);
     }
+  };
+
+  const handleSaveAddress = async () => {
+    if (!user) {
+      Alert.alert('Authentication Required', 'Please log in to save addresses.');
+      return;
+    }
+
+    if (!address.trim()) {
+      Alert.alert('No Address', 'Please enter an address to save.');
+      return;
+    }
+
+    Alert.prompt(
+      'Save Address',
+      'Enter a label for this address (e.g., Home, Office, etc.)',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Save',
+          onPress: async (label) => {
+            if (!label?.trim()) {
+              Alert.alert('Invalid Label', 'Please enter a valid label for the address.');
+              return;
+            }
+
+            try {
+              const addressData = {
+                label: label.trim(),
+                address: address.trim(),
+                city: addressEstate || 'Nairobi', // Use addressEstate or default to Nairobi
+                postalCode: '', // Could be extracted from address or left empty
+                instructions: additionalInfo.trim() || undefined,
+                type: 'other' as const, // Default type, could be made selectable
+                isDefault: false, // User can set this later in profile
+              };
+
+              await addSavedAddress(user.uid, addressData);
+              
+              Alert.alert(
+                'Address Saved!',
+                `Your address has been saved as "${label}". You can access it from your profile or use it in future orders.`,
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              console.error('Error saving address:', error);
+              Alert.alert(
+                'Save Failed',
+                'Failed to save the address. Please try again.',
+                [{ text: 'OK' }]
+              );
+            }
+          },
+        },
+      ],
+      'plain-text',
+      '', // Default text
+      'default' // Keyboard type
+    );
   };
 
   const handleCheckout = () => {
@@ -282,17 +476,45 @@ export default function BookServiceScreen() {
 
     try {
       // Create order data
+      const selectedScentOption = scentOptions.find(scent => scent.id === selectedScent);
+      const fullAddress = additionalInfo.trim()
+        ? `${address.trim()}\n${additionalInfo.trim()}`
+        : address.trim();
       const orderData = {
         category: selectedCategory,
         date: new Date().toISOString().split('T')[0],
-        address: address.trim(),
+        address: fullAddress,
+        phone: phoneNumber,
+        completedAt: null,
+        specialInstructions: additionalInfo.trim() || null,
+        ...(addressEstate && { estate: addressEstate }),
+        // Add structured address details for better organization
+        addressDetails: {
+          mainAddress: address.trim(),
+          estate: addressEstate,
+          buildingName: addressDetails.buildingName,
+          floorNumber: addressDetails.floorNumber,
+          doorNumber: addressDetails.doorNumber,
+          additionalInfo: addressDetails.additionalInfo,
+          label: addressDetails.label,
+          placeType: addressDetails.placeType
+        },
         status: 'pending' as const,
         items: orderType === 'per-item' 
           ? cart.map(item => `${item.name} (${item.quantity})`)
           : bagCart.map(item => `${item.name} (${item.quantity})`),
         total: getCartTotal(),
-        pickupTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Tomorrow
-        notes: `Order Type: ${orderType}, Phone: ${phoneNumber}, Payment: ${paymentMethod}`,
+        pickupTime: pickupTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Use selected time or tomorrow
+        notes: `Order Type: ${orderType}, Phone: ${phoneNumber}, Payment: ${paymentMethod}${selectedScent !== 'none' ? `, Scent: ${selectedScentOption?.name}` : ''}${additionalInfo.trim() ? `, Address Info: ${additionalInfo.trim()}` : ''}`,
+        isPaid: paymentMethod !== 'cash',
+        ...(selectedScent !== 'none' && { 
+          scent: {
+            id: selectedScent,
+            name: selectedScentOption?.name,
+            price: selectedScentOption?.price
+          }
+        }),
+        ...(deliveryTime && deliveryTime.trim() !== '' && { preferredDeliveryTime: deliveryTime }), // Only include if deliveryTime exists and is not empty
       };
 
       // Create order in database
@@ -306,9 +528,11 @@ export default function BookServiceScreen() {
           ? cart.map(item => ({ name: item.name, quantity: item.quantity, price: item.price }))
           : bagCart.map(item => ({ name: item.name, quantity: item.quantity, price: item.price })),
         total: getCartTotal(),
-        area: address.trim(),
+  area: fullAddress,
+        ...(addressEstate && { estate: addressEstate }),
         phone: phoneNumber,
-        pickupTime: 'Tomorrow, 9:00 AM - 5:00 PM',
+        pickupTime: pickupTime || 'Tomorrow, 9:00 AM - 5:00 PM',
+        preferredDeliveryTime: deliveryTime,
         paymentMethod,
         status: 'pending',
         isPaid: paymentMethod !== 'cash',
@@ -332,10 +556,22 @@ export default function BookServiceScreen() {
       } else {
         setBagCart([]);
       }
-      setAddress('');
+  setAddress('');
+  setAddressEstate('');
+  setAddressDetails({
+    buildingName: '',
+    floorNumber: '',
+    doorNumber: '',
+    additionalInfo: '',
+    label: '',
+    placeType: ''
+  });
       setPhoneNumber('');
+      setPickupTime('');
+      setDeliveryTime('');
+  setAdditionalInfo('');
       
-      setOrderStep('confirmed');
+  setOrderStep('confirmed');
       setShowSuccessModal(true);
 
     } catch (error) {
@@ -374,16 +610,6 @@ export default function BookServiceScreen() {
         }
       ]
     );
-  };
-
-  const handleViewReceipt = () => {
-    setShowSuccessModal(false);
-    setShowReceiptModal(true);
-  };
-
-  const handleCloseReceipt = () => {
-    setShowReceiptModal(false);
-    setOrderStep('cart');
   };
 
   const filteredServices = services.filter(service => service.category === selectedCategory);
@@ -540,29 +766,37 @@ export default function BookServiceScreen() {
 
           {/* Service Categories */}
           <View style={asViewStyle(styles.categoriesSection)}>
-            <Text style={asArrayTextStyle([styles.sectionTitle, { color: colors.text }])}>
-              Service Categories
-            </Text>
+            <View style={asViewStyle(styles.sectionTitleContainer)}>
+              <Text style={asArrayTextStyle([styles.sectionTitle, { color: colors.text }])}>
+                Service Categories
+              </Text>
+              <Text style={asArrayTextStyle([styles.sectionSubtitle, { color: colors.textSecondary }])}>
+                Choose the type of service you need
+              </Text>
+            </View>
             <ScrollView 
               horizontal 
               showsHorizontalScrollIndicator={false}
               style={asViewStyle(styles.categoriesContainer)}
               contentContainerStyle={asViewStyle(styles.categoriesContent)}
+              decelerationRate="fast"
+              snapToInterval={178} // width + gap
+              snapToAlignment="start"
             >
-              {serviceCategories.map((category) => (
-                <TouchableOpacity
-                  key={category.id}
+             {serviceCategories.map((category, index) => (
+  <TouchableOpacity
+    key={`category-${category.id}-${index}`}
                   style={[
                     asViewStyle(styles.categoryCard),
                     selectedCategory === category.id && asViewStyle(styles.categoryCardSelected),
                     { backgroundColor: colors.card }
                   ]}
                   onPress={() => setSelectedCategory(category.id)}
-                  activeOpacity={0.6}
+                  activeOpacity={0.7}
                 >
                   {selectedCategory === category.id && (
                     <LinearGradient
-                      colors={[colors.primary + '30', colors.primary + '15', colors.primary + '05']}
+                      colors={[colors.primary + '20', colors.primary + '10', colors.primary + '05']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={asViewStyle(styles.categoryGradient)}
@@ -570,9 +804,12 @@ export default function BookServiceScreen() {
                   )}
                   <View style={[
                     asViewStyle(styles.categoryIconContainer),
-                    { backgroundColor: selectedCategory === category.id ? colors.primary : colors.background }
+                    { backgroundColor: selectedCategory === category.id ? colors.primary + '15' : colors.background }
                   ]}>
                     <Image source={category.image} style={asImageStyle(styles.categoryImage)} />
+                    {selectedCategory === category.id && (
+                      <View style={asViewStyle(styles.categoryIconOverlay)} />
+                    )}
                   </View>
                   <Text style={[
                     asTextStyle(styles.categoryName),
@@ -586,7 +823,7 @@ export default function BookServiceScreen() {
                   <Text style={[
                     asTextStyle(styles.categoryDescription),
                     { 
-                      color: selectedCategory === category.id ? colors.primary + 'CC' : colors.textSecondary,
+                      color: selectedCategory === category.id ? colors.primary + 'BB' : colors.textSecondary,
                     }
                   ]}>
                     {category.description}
@@ -597,8 +834,8 @@ export default function BookServiceScreen() {
                     </View>
                   )}
                   {category.isPopular && selectedCategory !== category.id && (
-                    <View style={asViewStyle(styles.popularBadge)}>
-                      <Text style={asTextStyle(styles.popularText)}>POPULAR</Text>
+                    <View style={asViewStyle(styles.categoryPopularBadge)}>
+                      <Text style={asTextStyle(styles.categoryPopularText)}>POPULAR</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -627,16 +864,17 @@ export default function BookServiceScreen() {
                 <Text style={asArrayTextStyle([styles.bagServicesSubtitle, { color: colors.textSecondary }])}>
                   Premium bag services with expert care. Standard bags hold 12-20 items, Premium Care holds 4-6 specialty items.
                 </Text>
-                {filteredBagServices.map((service) => {
-                  const quantity = getItemQuantity(service.id);
-                  return (
-                    <View
-                      key={service.id}
-                      style={[
-                        asViewStyle(styles.bagServiceItem),
-                        { backgroundColor: colors.card },
-                        quantity > 0 && asViewStyle(asViewStyle(styles.serviceItemSelected))
-                      ]}
+                {filteredBagServices.map((service, index) => {
+  const isInCart = bagCart.some(item => item.id === service.id);
+  const quantity = getItemQuantity(service.id);
+  return (
+    <TouchableOpacity
+      key={`bag-service-${service.id}-${index}`}
+      style={[
+        asViewStyle(styles.bagServiceItem),
+        { backgroundColor: colors.card },
+        isInCart && asViewStyle(styles.serviceItemSelected)
+      ]}
                     >
                       <View style={asViewStyle(styles.bagServiceContent)}>
                         <View style={asViewStyle(styles.bagServiceInfo)}>
@@ -697,25 +935,26 @@ export default function BookServiceScreen() {
                           <Text style={asTextStyle(styles.inCartText)}>IN CART</Text>
                         </View>
                       )}
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
               </>
             ) : (
               <>
-                <Text style={asArrayTextStyle([styles.servicesSectionTitle, { color: colors.text }])}>
-                  {serviceCategories.find(cat => cat.id === selectedCategory)?.name} Services
-                </Text>
-                {filteredServices.map((service) => {
-                  const quantity = getItemQuantity(service.id);
-                  return (
-                    <View
-                      key={service.id}
-                      style={[
-                        asViewStyle(styles.serviceItem),
-                        { backgroundColor: colors.card },
-                        quantity > 0 && asViewStyle(styles.serviceItemSelected)
-                      ]}
+              <Text style={asArrayTextStyle([styles.servicesSectionTitle, { color: colors.text }])}>
+                {serviceCategories.find(cat => cat.id === selectedCategory)?.name} Services
+              </Text>
+                  {filteredServices.map((service, index) => {
+  const isInCart = cart.some(item => item.id === service.id);
+  const quantity = getItemQuantity(service.id);
+  return (
+    <TouchableOpacity
+      key={`service-${service.id}-${index}`}
+      style={[
+        asViewStyle(styles.serviceItem),
+        { backgroundColor: colors.card },
+        isInCart && asViewStyle(styles.serviceItemSelected)
+      ]}
                     >
                       <View style={asViewStyle(styles.serviceContent)}>
                         <View style={asViewStyle(styles.serviceInfo)}>
@@ -765,7 +1004,7 @@ export default function BookServiceScreen() {
                           <Text style={asTextStyle(styles.inCartText)}>IN CART</Text>
                         </View>
                       )}
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
               </>
@@ -801,8 +1040,8 @@ export default function BookServiceScreen() {
 
                   <View style={asViewStyle(styles.cartItems)}>
                     {orderType === 'per-item' ? (
-                      cart.map((item) => (
-                        <View key={item.id} style={[asViewStyle(styles.cartItem), { borderBottomColor: colors.border }]}>
+  cart.map((item, index) => (
+    <View key={`cart-${item.id}-${index}`} style={[asViewStyle(styles.cartItem), { borderBottomColor: colors.border }]}>
                           <View style={asViewStyle(styles.cartItemInfo)}>
                             <Text style={asArrayTextStyle([styles.cartItemName, { color: colors.text }])}>
                               {item.name}
@@ -817,8 +1056,8 @@ export default function BookServiceScreen() {
                         </View>
                       ))
                     ) : (
-                      bagCart.map((item) => (
-                        <View key={item.id} style={[asViewStyle(styles.cartItem), { borderBottomColor: colors.border }]}>
+  bagCart.map((item, index) => (
+    <View key={`bag-cart-${item.id}-${index}`} style={[asViewStyle(styles.cartItem), { borderBottomColor: colors.border }]}>
                           <View style={asViewStyle(styles.cartItemInfo)}>
                             <Text style={asArrayTextStyle([styles.cartItemName, { color: colors.text }])}>
                               {item.name}
@@ -835,6 +1074,34 @@ export default function BookServiceScreen() {
                     )}
                   </View>
 
+                  {/* Scent Selection */}
+                  <TouchableOpacity 
+                    style={[asViewStyle(styles.scentSelector), { backgroundColor: colors.card, borderColor: colors.border }]}
+                    onPress={() => setShowScentModal(true)}
+                  >
+                    <View style={asViewStyle(styles.scentSelectorContent)}>
+                      <View style={asViewStyle(styles.scentIconContainer)}>
+                        <Sparkles size={20} color={colors.primary} />
+                      </View>
+                      <View style={asViewStyle(styles.scentInfo)}>
+                        <Text style={asArrayTextStyle([styles.scentTitle, { color: colors.text }])}>
+                          Add Scent
+                        </Text>
+                        <Text style={asArrayTextStyle([styles.scentSubtitle, { color: colors.textSecondary }])}>
+                          {selectedScent !== 'none' ? scentOptions.find(s => s.id === selectedScent)?.name : 'Choose a premium fragrance'}
+                        </Text>
+                      </View>
+                      <View style={asViewStyle(styles.scentPrice)}>
+                        {selectedScent !== 'none' && (
+                          <Text style={asArrayTextStyle([styles.scentPriceText, { color: colors.primary }])}>
+                            +KSh {scentOptions.find(s => s.id === selectedScent)?.price}
+                          </Text>
+                        )}
+                        <ChevronRight size={16} color={colors.textSecondary} />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+
                   <View style={[asViewStyle(styles.cartTotal), { borderTopColor: colors.border }]}>
                     <Text style={asArrayTextStyle([styles.totalLabel, { color: colors.text }])}>
                       Total
@@ -847,96 +1114,559 @@ export default function BookServiceScreen() {
               </LinearGradient>
             </View>
           )}
-
-          {/* Delivery Information */}
-          {getCartItemCount() > 0 && (
-            <View style={asViewStyle(styles.deliverySection)}>
-              <Text style={asArrayTextStyle([styles.deliverySectionTitle, { color: colors.text }])}>
-                Delivery Information
-              </Text>
-              <View style={asArrayViewStyle([styles.deliveryCard, { backgroundColor: colors.card }])}>
-                <View style={asViewStyle(styles.inputGroup)}>
-                  <View style={asArrayViewStyle([styles.inputIconContainer, { backgroundColor: colors.primary + '20' }])}>
-                    <MapPin size={24} color={colors.primary} />
-                  </View>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      { backgroundColor: colors.background, color: colors.text }
-                    ] as TextStyle[]}
-                    placeholder="Enter your delivery address"
-                    placeholderTextColor={colors.textSecondary}
-                    value={address}
-                    onChangeText={setAddress}
-                    multiline
-                  />
+  
+      {/* Delivery Information */}
+      {getCartItemCount() > 0 && (
+        <>
+          <View style={asViewStyle(styles.deliverySection)}>
+            <LinearGradient
+              colors={['rgba(0, 122, 255, 0.03)', 'rgba(0, 122, 255, 0.01)']}
+              style={asViewStyle(styles.deliverySectionGradient)}
+            >
+              <View style={asViewStyle(styles.deliverySectionHeader)}>
+                <View style={asViewStyle(styles.deliveryHeaderIcon)}>
+                  <LinearGradient
+                    colors={[colors.primary, colors.primary + 'CC']}
+                    style={asViewStyle(styles.deliveryIconGradient)}
+                  >
+                    <MapPin size={24} color="#FFFFFF" />
+                  </LinearGradient>
                 </View>
-                <View style={asViewStyle(styles.inputGroup)}>
-                  <View style={asArrayViewStyle([styles.inputIconContainer, { backgroundColor: colors.primary + '20' }])}>
-                    <Phone size={24} color={colors.primary} />
-                  </View>
-                  <TextInput
-                    style={asArrayTextStyle([styles.input, { backgroundColor: colors.background, color: colors.text }])}
-                    placeholder="Enter your phone number"
-                    placeholderTextColor={colors.textSecondary}
-                    value={phoneNumber}
-                    onChangeText={setPhoneNumber}
-                    keyboardType="phone-pad"
-                  />
+                <View style={asViewStyle(styles.deliveryHeaderText)}>
+                  <Text style={asArrayTextStyle([styles.deliverySectionTitle, { color: colors.text }])}>
+                    Delivery Information
+                  </Text>
+                  <Text style={asArrayTextStyle([styles.deliverySectionSubtitle, { color: colors.textSecondary }])}>
+                    Where should we deliver your items?
+                  </Text>
                 </View>
               </View>
-            </View>
-          )}
 
-          {/* Checkout Button */}
-          {getCartItemCount() > 0 && (
-            <View style={asViewStyle(styles.checkoutSection)}>
-              <TouchableOpacity
-                style={styles.checkoutGradient as ViewStyle}
-                onPress={handleCheckout}
-                activeOpacity={0.7}
-                onPressIn={(e) => {
-                  e.currentTarget.setNativeProps({
-                    style: {
-                      transform: [{ scale: 0.98 }],
-                      shadowOpacity: 0.15,
-                      elevation: 6
-                    }
-                  });
-                }}
-                onPressOut={(e) => {
-                  e.currentTarget.setNativeProps({
-                    style: {
-                      transform: [{ scale: 1.0 }],
-                      shadowOpacity: 0.3,
-                      elevation: 12
-                    }
-                  });
-                }}
-              >
-                <LinearGradient
-                  colors={[colors.primary, colors.primary + 'E6']}
-                  style={asViewStyle(styles.checkoutGradient)}
-                >
-                  <View style={asViewStyle(styles.checkoutButton)}>
-                    <ShoppingCart size={24} color="#FFFFFF" />
-                    <Text style={asTextStyle(styles.checkoutButtonText)}>
-                      Proceed to Payment • KSh {(getCartTotal() || 0).toLocaleString()}
+              <View style={asArrayViewStyle([styles.deliveryCard, { backgroundColor: colors.card }])}>
+                {/* Premium Address Input Mode Toggle */}
+                <View style={asViewStyle([styles.addressModeToggle, { backgroundColor: colors.background }])}>
+                  <TouchableOpacity
+                    style={asViewStyle([
+                      styles.addressModeButton,
+                      !useManualAddress && styles.addressModeButtonActive,
+                      { backgroundColor: !useManualAddress ? colors.primary : 'transparent' }
+                    ])}
+                    onPress={() => setUseManualAddress(false)}
+                  >
+                    <MapPin size={18} color={!useManualAddress ? '#FFFFFF' : colors.textSecondary} />
+                    <Text style={asTextStyle([
+                      styles.addressModeButtonText,
+                      { color: !useManualAddress ? '#FFFFFF' : colors.textSecondary }
+                    ])}>
+                      Map Picker
                     </Text>
-                  </View>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={asViewStyle([
+                      styles.addressModeButton,
+                      useManualAddress && styles.addressModeButtonActive,
+                      { backgroundColor: useManualAddress ? colors.primary : 'transparent' }
+                    ])}
+                    onPress={() => setUseManualAddress(true)}
+                  >
+                    <Ionicons name="create-outline" size={18} color={useManualAddress ? '#FFFFFF' : colors.textSecondary} />
+                    <Text style={asTextStyle([
+                      styles.addressModeButtonText,
+                      { color: useManualAddress ? '#FFFFFF' : colors.textSecondary }
+                    ])}>
+                      Type Address
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-      {/* Payment Modal */}
+                <View style={asViewStyle(styles.addressInputContainer)}>
+                  {!useManualAddress ? (
+                    // Premium Interactive Map Picker - Full Width
+                    <View style={asViewStyle(styles.fullWidthLayout)}>
+                      <TouchableOpacity
+                        style={asViewStyle([styles.premiumMapPickerCard, {
+                          backgroundColor: colors.background,
+                          borderColor: address ? colors.primary + '30' : colors.border + '30'
+                        }])}
+                        onPress={() => setShowLocationPicker(true)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={asViewStyle(styles.mapPickerCardHeader)}>
+                          <View style={asViewStyle([styles.mapPickerIconLarge, { backgroundColor: colors.primary + '15' }])}>
+                            <MapPin size={24} color={colors.primary} />
+                          </View>
+                          <View style={asViewStyle(styles.mapPickerHeaderText)}>
+                            <Text style={asTextStyle([styles.mapPickerTitle, { color: colors.text }])}>
+                              {address ? 'Selected Location' : 'Choose Your Location'}
+                            </Text>
+                            <Text style={asTextStyle([styles.mapPickerSubtitle, { color: colors.textSecondary }])}>
+                              Tap to select delivery address on map
+                            </Text>
+                          </View>
+                          <View style={asViewStyle([styles.mapPickerChevron, { backgroundColor: colors.primary + '10' }])}>
+                            <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+                          </View>
+                        </View>
+
+                        {address && (
+                          <View style={asViewStyle([styles.selectedAddressPreview, { borderTopColor: colors.border + '30' }])}>
+                            <Text style={asTextStyle([styles.selectedAddressText, { color: colors.text }])} numberOfLines={2}>
+                              {address}
+                            </Text>
+                            
+                            {/* Add Details Button for Map Picker */}
+                            <View style={asViewStyle(styles.addressActionsRow)}>
+                              <TouchableOpacity
+                                onPress={() => setShowAddressDetailsModal(true)}
+                                style={asViewStyle([styles.addDetailsButton, { borderColor: colors.primary + '30' }])}
+                                activeOpacity={0.7}
+                              >
+                                <Ionicons name="add-circle-outline" size={16} color={colors.primary} />
+                                <Text style={asTextStyle([styles.addDetailsButtonText, { color: colors.primary }])}>
+                                  {additionalInfo ? 'Edit Details' : 'Add Details'}
+                                </Text>
+                              </TouchableOpacity>
+
+                              {address.length > 20 && (
+                                <TouchableOpacity
+                                  style={asViewStyle([styles.saveForLaterButton, { backgroundColor: colors.primary + '08' }])}
+                                  onPress={handleSaveAddress}
+                                  activeOpacity={0.8}
+                                >
+                                  <Ionicons name="bookmark-outline" size={14} color={colors.primary} />
+                                  <Text style={asTextStyle([styles.saveForLaterText, { color: colors.primary }])}>
+                                    Save for later
+                                  </Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+
+                            {/* Display Additional Details */}
+                            {additionalInfo && (
+                              <View style={asViewStyle([styles.additionalDetailsDisplay, { backgroundColor: colors.primary + '08', borderColor: colors.primary + '20' }])}>
+                                <View style={asViewStyle(styles.additionalDetailsHeader)}>
+                                  <Ionicons name="information-circle" size={16} color={colors.primary} />
+                                  <Text style={asTextStyle([styles.additionalDetailsTitle, { color: colors.primary }])}>
+                                    Additional Details
+                                  </Text>
+                                  <TouchableOpacity
+                                    onPress={() => setShowAddressDetailsModal(true)}
+                                    style={asViewStyle(styles.editDetailsButton)}
+                                  >
+                                    <Ionicons name="create-outline" size={14} color={colors.primary} />
+                                  </TouchableOpacity>
+                                </View>
+                                <View style={asViewStyle(styles.additionalDetailsContent)}>
+                                  {additionalInfo.split('\n').map((detail, index) => (
+                                    <View key={`detail-${index}-${detail.substring(0, 10)}`} style={asViewStyle(styles.detailItem)}>
+                                      <View style={asViewStyle([styles.detailDot, { backgroundColor: colors.primary }])} />
+                                      <Text style={asTextStyle([styles.detailText, { color: colors.text }])}>
+                                        {detail.trim()}
+                                      </Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </TouchableOpacity>
+
+                      <Modal visible={showLocationPicker} animationType="slide" presentationStyle="fullScreen">
+                        <ModernLocationPicker
+                          onLocationSelect={({ latitude, longitude, address: addressData }) => {
+                            const coords = { latitude, longitude };
+                            const formatted = addressData?.fullAddress || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+                            const structured = {
+                              estate: addressData?.estate,
+                              building: addressData?.building,
+                              road: addressData?.road,
+                              area: addressData?.area,
+                              county: addressData?.county,
+                              // Capture detailed information from the form
+                              buildingName: addressData?.buildingName,
+                              floorNumber: addressData?.floorNumber,
+                              doorNumber: addressData?.doorNumber,
+                              additionalInfo: addressData?.additionalInfo,
+                              label: addressData?.label,
+                              placeType: addressData?.placeType
+                            };
+
+                            setAddress(formatted);
+                            setAddressEstate(structured?.estate || '');
+
+                            // Store structured address details
+                            setAddressDetails({
+                              buildingName: addressData?.buildingName || '',
+                              floorNumber: addressData?.floorNumber || '',
+                              doorNumber: addressData?.doorNumber || '',
+                              additionalInfo: addressData?.additionalInfo || '',
+                              label: addressData?.label || '',
+                              placeType: addressData?.placeType || ''
+                            });
+
+                            // Store the complete address details in formatted string for display
+                            setAdditionalInfo(
+                              [
+                                addressData?.buildingName && `Building: ${addressData.buildingName}`,
+                                addressData?.floorNumber && `Floor: ${addressData.floorNumber}`,
+                                addressData?.doorNumber && `Door: ${addressData.doorNumber}`,
+                                addressData?.additionalInfo && `Notes: ${addressData.additionalInfo}`,
+                                addressData?.label && `Label: ${addressData.label}`,
+                                addressData?.placeType && `Type: ${addressData.placeType}`
+                              ].filter(Boolean).join('\n') || ''
+                            );
+
+                            lastPickerPickRef.current = Date.now();
+                            setShowLocationPicker(false);
+                            console.log('[AddressDetails] Complete address data:', addressData);
+                            console.log('[AddressDetails] Formatted additional info:', additionalInfo);
+                            // Open modal as soon as interactions/animation settle
+                            InteractionManager.runAfterInteractions(() => {
+                              requestAnimationFrame(() => {
+                                if (!showAddressDetailsModal) {
+                                  setShowAddressDetailsModal(true);
+                                }
+                              });
+                            });
+                          }}
+                          onClose={() => setShowLocationPicker(false)} />
+                      </Modal>
+
+                      {/* Phone Input Below Map Picker */}
+                      <View style={asViewStyle([styles.premiumInputCard, { marginTop: 20 }])}>
+                        <View style={asViewStyle(styles.inputCardHeader)}>
+                          <View style={asViewStyle([styles.inputCardIcon, { backgroundColor: colors.primary + '15' }])}>
+                            <Phone size={20} color={colors.primary} />
+                          </View>
+                          <View style={asViewStyle(styles.inputCardHeaderText)}>
+                            <Text style={asTextStyle([styles.inputCardTitle, { color: colors.text }])}>
+                              Contact Number
+                            </Text>
+                            <Text style={asTextStyle([styles.inputCardSubtitle, { color: colors.textSecondary }])}>
+                              For pickup and delivery coordination
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={asViewStyle(styles.textInputWrapper)}>
+                          <TextInput
+                            style={asArrayTextStyle([styles.premiumPhoneInputFull, {
+                              backgroundColor: colors.background,
+                              color: colors.text,
+                              borderColor: phoneNumber ? colors.primary + '40' : colors.border + '40'
+                            }])}
+                            placeholder="Enter your phone number"
+                            placeholderTextColor={colors.textSecondary + '60'}
+                            value={phoneNumber}
+                            onChangeText={setPhoneNumber}
+                            keyboardType="phone-pad" />
+                          {phoneNumber && (
+                            <View style={asViewStyle(styles.inputValidationIcon)}>
+                              <View style={asViewStyle([styles.validationIconBadge, { backgroundColor: colors.primary }])}>
+                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  ) : (
+                    // Premium Manual Text Input - Full Width
+                    <View style={asViewStyle(styles.fullWidthLayout)}>
+                      <View style={asViewStyle(styles.premiumInputCard)}>
+                        <View style={asViewStyle(styles.inputCardHeader)}>
+                          <View style={asViewStyle([styles.inputCardIcon, { backgroundColor: colors.primary + '15' }])}>
+                            <Ionicons name="create-outline" size={20} color={colors.primary} />
+                          </View>
+                          <View style={asViewStyle(styles.inputCardHeaderText)}>
+                            <Text style={asTextStyle([styles.inputCardTitle, { color: colors.text }])}>
+                              Type Your Address
+                            </Text>
+                            <Text style={asTextStyle([styles.inputCardSubtitle, { color: colors.textSecondary }])}>
+                              Include all relevant details for precise delivery
+                            </Text>
+                          </View>
+                          <Text style={asTextStyle([styles.characterCounter, { color: colors.textSecondary }])}>
+                            {address.length} chars
+                          </Text>
+                        </View>
+
+                        <View style={asViewStyle(styles.textInputWrapper)}>
+                          <TextInput
+                            style={asArrayTextStyle([styles.premiumTextInputLarge, {
+                              backgroundColor: colors.background,
+                              color: colors.text,
+                              borderColor: address ? colors.primary + '40' : colors.border + '40'
+                            }])}
+                            placeholder="Apartment 4B, Valley Arcade Apartments, Lavington, Nairobi..."
+                            placeholderTextColor={colors.textSecondary + '60'}
+                            value={address}
+                            onChangeText={setAddress}
+                            multiline={true}
+                            numberOfLines={4}
+                            textAlignVertical="top" />
+                          {address && (
+                            <View style={asViewStyle(styles.inputValidationIcon)}>
+                              <View style={asViewStyle([styles.validationIconBadge, { backgroundColor: colors.primary }])}>
+                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                              </View>
+                            </View>
+                          )}
+                        </View>
+
+                        {address && (
+                          <View style={asViewStyle(styles.addressActionsRow)}>
+                            <TouchableOpacity
+                              onPress={() => setShowAddressDetailsModal(true)}
+                              style={asViewStyle([styles.addDetailsButton, { borderColor: colors.primary + '30' }])}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons name="add-circle-outline" size={16} color={colors.primary} />
+                              <Text style={asTextStyle([styles.addDetailsButtonText, { color: colors.primary }])}>
+                                {additionalInfo ? 'Edit Details' : 'Add Details'}
+                              </Text>
+                            </TouchableOpacity>
+
+                            {address.length > 20 && (
+                              <TouchableOpacity
+                                style={asViewStyle([styles.saveForLaterButton, { backgroundColor: colors.primary + '08' }])}
+                                onPress={handleSaveAddress}
+                                activeOpacity={0.8}
+                              >
+                                <Ionicons name="bookmark-outline" size={14} color={colors.primary} />
+                                <Text style={asTextStyle([styles.saveForLaterText, { color: colors.primary }])}>
+                                  Save for later
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        )}
+
+                        {/* Display Additional Details for Manual Address */}
+                        {address && additionalInfo && (
+                          <View style={asViewStyle([styles.additionalDetailsDisplay, { backgroundColor: colors.primary + '08', borderColor: colors.primary + '20' }])}>
+                            <View style={asViewStyle(styles.additionalDetailsHeader)}>
+                              <Ionicons name="information-circle" size={16} color={colors.primary} />
+                              <Text style={asTextStyle([styles.additionalDetailsTitle, { color: colors.primary }])}>
+                                Additional Details
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => setShowAddressDetailsModal(true)}
+                                style={asViewStyle(styles.editDetailsButton)}
+                              >
+                                <Ionicons name="create-outline" size={14} color={colors.primary} />
+                              </TouchableOpacity>
+                            </View>
+                            <View style={asViewStyle(styles.additionalDetailsContent)}>
+                              {additionalInfo.split('\n').map((detail, index) => (
+                                <View key={`detail-${index}-${detail.substring(0, 10)}`} style={asViewStyle(styles.detailItem)}>
+                                  <View style={asViewStyle([styles.detailDot, { backgroundColor: colors.primary }])} />
+                                  <Text style={asTextStyle([styles.detailText, { color: colors.text }])}>
+                                    {detail.trim()}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Phone Input Below Address Input */}
+                      <View style={asViewStyle([styles.premiumInputCard, { marginTop: 20 }])}>
+                        <View style={asViewStyle(styles.inputCardHeader)}>
+                          <View style={asViewStyle([styles.inputCardIcon, { backgroundColor: colors.primary + '15' }])}>
+                            <Phone size={20} color={colors.primary} />
+                          </View>
+                          <View style={asViewStyle(styles.inputCardHeaderText)}>
+                            <Text style={asTextStyle([styles.inputCardTitle, { color: colors.text }])}>
+                              Contact Number
+                            </Text>
+                            <Text style={asTextStyle([styles.inputCardSubtitle, { color: colors.textSecondary }])}>
+                              For pickup and delivery coordination
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={asViewStyle(styles.textInputWrapper)}>
+                          <TextInput
+                            style={asArrayTextStyle([styles.premiumPhoneInputFull, {
+                              backgroundColor: colors.background,
+                              color: colors.text,
+                              borderColor: phoneNumber ? colors.primary + '40' : colors.border + '40'
+                            }])}
+                            placeholder="Enter your phone number"
+                            placeholderTextColor={colors.textSecondary + '60'}
+                            value={phoneNumber}
+                            onChangeText={setPhoneNumber}
+                            keyboardType="phone-pad" />
+                          {phoneNumber && (
+                            <View style={asViewStyle(styles.inputValidationIcon)}>
+                              <View style={asViewStyle([styles.validationIconBadge, { backgroundColor: colors.primary }])}>
+                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+
+                      {/* Email Input Below Phone Input */}
+                      <View style={asViewStyle([styles.premiumInputCard, { marginTop: 16 }])}>
+                        <View style={asViewStyle(styles.inputCardHeader)}>
+                          <View style={asViewStyle([styles.inputCardIcon, { backgroundColor: colors.primary + '15' }])}>
+                            <Ionicons name="mail-outline" size={20} color={colors.primary} />
+                          </View>
+                          <View style={asViewStyle(styles.inputCardHeaderText)}>
+                            <Text style={asTextStyle([styles.inputCardTitle, { color: colors.text }])}>
+                              Email Address (Optional)
+                            </Text>
+                            <Text style={asTextStyle([styles.inputCardSubtitle, { color: colors.textSecondary }])}>
+                              For receipt delivery and order updates
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={asViewStyle(styles.textInputWrapper)}>
+                          <TextInput
+                            style={asArrayTextStyle([styles.premiumPhoneInputFull, {
+                              backgroundColor: colors.background,
+                              color: colors.text,
+                              borderColor: customerEmail ? colors.primary + '40' : colors.border + '40'
+                            }])}
+                            placeholder="Enter your email address"
+                            placeholderTextColor={colors.textSecondary + '60'}
+                            value={customerEmail}
+                            onChangeText={setCustomerEmail}
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoComplete="email"
+                            textContentType="emailAddress" />
+                          {customerEmail && (
+                            <View style={asViewStyle(styles.inputValidationIcon)}>
+                              <View style={asViewStyle([styles.validationIconBadge, { backgroundColor: colors.primary }])}>
+                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
+
+          {/* Time Selection Section */}
+          <View style={asViewStyle(styles.deliverySection)}>
+            <LinearGradient
+              colors={['rgba(0, 122, 255, 0.03)', 'rgba(0, 122, 255, 0.01)']}
+              style={asViewStyle(styles.deliverySectionGradient)}
+            >
+              <View style={asViewStyle(styles.deliverySectionHeader)}>
+                <View style={asViewStyle(styles.deliveryHeaderIcon)}>
+                  <LinearGradient
+                    colors={[colors.primary, colors.primary + 'CC']}
+                    style={asViewStyle(styles.deliveryIconGradient)}
+                  >
+                    <Calendar size={24} color="#FFFFFF" />
+                  </LinearGradient>
+                </View>
+                <View style={asViewStyle(styles.deliveryHeaderText)}>
+                  <Text style={asArrayTextStyle([styles.deliverySectionTitle, { color: colors.text }])}>
+                    Pickup & Delivery Schedule
+                  </Text>
+                  <Text style={asArrayTextStyle([styles.deliverySectionSubtitle, { color: colors.textSecondary }])}>
+                    When should we collect and deliver your items?
+                  </Text>
+                </View>
+              </View>
+
+              <View style={asArrayViewStyle([styles.deliveryCard, { backgroundColor: colors.card }])}>
+                <TouchableOpacity
+                  style={asViewStyle(styles.timeSelectionButton)}
+                  onPress={() => setShowTimeModal(true)}
+                  activeOpacity={0.7}
+                >
+                  <View style={asArrayViewStyle([styles.inputCardIcon, { backgroundColor: colors.primary + '20' }])}>
+                    <Calendar size={24} color={colors.primary} />
+                  </View>
+                  <View style={asViewStyle(styles.timeSelectionContent)}>
+                    <Text style={asArrayTextStyle([styles.timeSelectionLabel, { color: colors.textSecondary }])}>
+                      Pickup Time
+                    </Text>
+                    <Text style={asArrayTextStyle([styles.timeSelectionValue, { color: colors.text }])}>
+                      {pickupTime || 'Select pickup time'}
+                    </Text>
+                    {deliveryTime && (
+                      <>
+                        <Text style={asArrayTextStyle([styles.timeSelectionLabel, { color: colors.textSecondary, marginTop: 8 }])}>
+                          Preferred Delivery
+                        </Text>
+                        <Text style={asArrayTextStyle([styles.timeSelectionValue, { color: colors.text }])}>
+                          {deliveryTime}
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                  <View style={asArrayViewStyle([styles.timeSelectionArrow, { backgroundColor: colors.primary + '10' }])}>
+                    <ChevronRight size={20} color={colors.primary} />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+          </View>
+
+            {/* Checkout Button */}
+            {getCartItemCount() > 0 && (
+              <View style={asViewStyle(styles.checkoutSection)}>
+                <TouchableOpacity
+                  style={styles.checkoutGradient as ViewStyle}
+                  onPress={handleCheckout}
+                  activeOpacity={0.7}
+                  onPressIn={(e) => {
+                    e.currentTarget.setNativeProps({
+                      style: {
+                        transform: [{ scale: 0.98 }],
+                        shadowOpacity: 0.15,
+                        elevation: 6
+                      }
+                    });
+                  }}
+                  onPressOut={(e) => {
+                    e.currentTarget.setNativeProps({
+                      style: {
+                        transform: [{ scale: 1.0 }],
+                        shadowOpacity: 0.3,
+                        elevation: 12
+                      }
+                    });
+                  }}
+                >
+                  <LinearGradient
+                    colors={[colors.primary, colors.primary + 'E6']}
+                    style={asViewStyle(styles.checkoutGradient)}
+                  >
+                    <View style={asViewStyle(styles.checkoutButton)}>
+                      <ShoppingCart size={24} color="#FFFFFF" />
+                      <Text style={asTextStyle(styles.checkoutButtonText)}>
+                        Proceed to Payment • KSh {(getCartTotal() || 0).toLocaleString()}
+                      </Text>
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        )}
+          </ScrollView>
+      </KeyboardAvoidingView>
+  
       <PaymentModal
         visible={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
         onPaymentComplete={handlePaymentComplete}
-        total={getCartTotal()}
+        total={getCartTotal()} 
       />
 
       {/* Success Modal */}
@@ -944,32 +1674,212 @@ export default function BookServiceScreen() {
         <OrderConfirmationModal
           visible={showSuccessModal}
           onClose={() => setShowSuccessModal(false)}
-          onViewReceipt={() => {
-            setShowSuccessModal(false);
-            setShowReceiptModal(true);
-          }}
           orderDetails={currentOrder}
         />
       )}
 
-      {/* Receipt Modal */}
-      {currentOrder && (
-        <ReceiptModal
-          visible={showReceiptModal}
-          onClose={() => setShowReceiptModal(false)}
-          orderData={{
-            orderId: currentOrder.id || '',
-            service: currentOrder.category || 'Laundry Service',
-            items: cart.map(item => `${item.quantity}x ${item.name}`),
-            total: getCartTotal(),
-            area: currentOrder.address || '',
-            phone: currentOrder.phone || '',
-            pickupTime: currentOrder.pickupTime || '',
-            paymentMethod: currentOrder.paymentMethod || 'Not specified',
-            isPaid: currentOrder.isPaid || false
-          }}
-        />
-      )}
+      {/* Saved Addresses Modal */}
+      <Modal
+        visible={showAddressModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAddressModal(false)}
+      >
+        <View style={asViewStyle(styles.modalOverlay)}>
+          <View style={asViewStyle([styles.modalContainer, { backgroundColor: colors.background }])}>
+            <Text style={asTextStyle([styles.modalTitle, { color: colors.text }])}>
+              Select Address
+            </Text>
+            
+            <ScrollView style={asViewStyle(styles.addressList)}>
+              {savedAddresses.map((savedAddress) => (
+                <TouchableOpacity
+                  key={savedAddress.id}
+                  style={asViewStyle([
+                    styles.addressItem,
+                    { 
+                      backgroundColor: colors.card,
+                      borderColor: savedAddress.isDefault ? colors.primary : colors.border,
+                      borderWidth: savedAddress.isDefault ? 2 : 1
+                    }
+                  ])}
+                  onPress={() => {
+                    setAddress(savedAddress.address);
+                    setShowAddressModal(false);
+                  }}
+                >
+                  <View style={asViewStyle(styles.addressItemHeader)}>
+                    <Text style={asTextStyle([styles.addressItemLabel, { color: colors.text }])}>
+                      {savedAddress.label}
+                    </Text>
+                    {savedAddress.isDefault && (
+                      <View style={asViewStyle([styles.defaultBadge, { backgroundColor: colors.primary }])}>
+                        <Text style={asTextStyle(styles.defaultBadgeText)}>Default</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={asTextStyle([styles.addressItemText, { color: colors.textSecondary }])}>
+                    {savedAddress.address}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            
+            <TouchableOpacity
+              style={asViewStyle([styles.closeModalButton, { backgroundColor: colors.card }])}
+              onPress={() => setShowAddressModal(false)}
+            >
+              <Text style={asTextStyle([styles.closeModalButtonText, { color: colors.text }])}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Time Selection Modal */}
+      <TimeSelectionModal
+        visible={showTimeModal}
+        onClose={() => setShowTimeModal(false)}
+        onSave={async (selectedPickupTime?: string, selectedDeliveryTime?: string) => {
+          if (selectedPickupTime) setPickupTime(selectedPickupTime);
+          if (selectedDeliveryTime) setDeliveryTime(selectedDeliveryTime);
+          setShowTimeModal(false);
+        }}
+        currentPickupTime={pickupTime}
+        currentDeliveryTime={deliveryTime}
+        orderStatus="pending"
+      />
+
+      {/* Scent Selection Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showScentModal}
+        onRequestClose={() => setShowScentModal(false)}
+      >
+        <View style={asViewStyle(styles.modalOverlay)}>
+          <View style={[asViewStyle(styles.modalContent), { backgroundColor: colors.card }]}>
+            <View style={asViewStyle(styles.modalHeader)}>
+              <Text style={asArrayTextStyle([styles.modalTitle, { color: colors.text }])}>
+                Choose Scent
+              </Text>
+              <TouchableOpacity 
+                onPress={() => setShowScentModal(false)}
+                style={asViewStyle(styles.modalCloseButton)}
+              >
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={asViewStyle(styles.scentList)}>
+              {/* No Scent Option */}
+              <TouchableOpacity
+                style={[
+                  asViewStyle(styles.scentOption),
+                  { 
+                    backgroundColor: selectedScent === 'none' ? colors.primary + '20' : 'transparent',
+                    borderColor: selectedScent === 'none' ? colors.primary : colors.border
+                  }
+                ]}
+                onPress={() => {
+                  setSelectedScent('none');
+                  setShowScentModal(false);
+                }}
+              >
+                <View style={asViewStyle(styles.scentOptionContent)}>
+                  <View style={asViewStyle(styles.scentOptionInfo)}>
+                    <Text style={asArrayTextStyle([styles.scentOptionName, { color: colors.text }])}>
+                      No Scent
+                    </Text>
+                    <Text style={asArrayTextStyle([styles.scentOptionDesc, { color: colors.textSecondary }])}>
+                      Keep your items fragrance-free
+                    </Text>
+                  </View>
+                  <Text style={asArrayTextStyle([styles.scentOptionPrice, { color: colors.primary }])}>
+                    FREE
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              {/* Scent Options */}
+              {scentOptions.map((scent) => (
+                <TouchableOpacity
+                  key={scent.id}
+                  style={[
+                    asViewStyle(styles.scentOption),
+                    { 
+                      backgroundColor: selectedScent === scent.id ? colors.primary + '20' : 'transparent',
+                      borderColor: selectedScent === scent.id ? colors.primary : colors.border
+                    }
+                  ]}
+                  onPress={() => {
+                    setSelectedScent(scent.id);
+                    setShowScentModal(false);
+                  }}
+                >
+                  <View style={asViewStyle(styles.scentOptionContent)}>
+                    <View style={asViewStyle(styles.scentOptionInfo)}>
+                      <Text style={asArrayTextStyle([styles.scentOptionName, { color: colors.text }])}>
+                        {scent.name}
+                      </Text>
+                      <Text style={asArrayTextStyle([styles.scentOptionDesc, { color: colors.textSecondary }])}>
+                        {scent.description}
+                      </Text>
+                    </View>
+                    <Text style={asArrayTextStyle([styles.scentOptionPrice, { color: colors.primary }])}>
+                      KSh {scent.price}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Address Details Modal */}
+      <Modal visible={showAddressDetailsModal} animationType="fade" transparent onShow={() => console.log('[AddressDetails] Floating card shown')}> 
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={asViewStyle([{ flex:1, justifyContent:'flex-end' }])}>
+          <View style={asViewStyle([{ flex:1, backgroundColor:'rgba(0,0,0,0.45)' }])}>
+            <TouchableOpacity style={{ flex:1 }} activeOpacity={1} onPress={() => setShowAddressDetailsModal(false)} />
+            <View style={asViewStyle([{ marginHorizontal:16, marginBottom:34, padding:20, borderRadius:24, backgroundColor: colors.card, borderWidth:1, borderColor: colors.border, shadowColor:'#000', shadowOpacity: 0.3, shadowRadius: 16, elevation: 10 }])}>
+              <View style={{ flexDirection:'row', alignItems:'center', marginBottom:14 }}>
+                <TouchableOpacity onPress={() => setShowAddressDetailsModal(false)} style={{ padding:4, marginRight:8 }}>
+                  <Ionicons name="arrow-back" size={22} color={colors.text} />
+                </TouchableOpacity>
+                <Text style={{ flex:1, textAlign:'center', fontSize:18, fontWeight:'700', color: colors.text }}>Address details</Text>
+                <View style={{ width:22 }} />
+              </View>
+              <View style={{ flexDirection:'row', marginBottom:18 }}>
+                <View style={{ width:44, height:44, borderRadius:14, backgroundColor: colors.primary + '22', alignItems:'center', justifyContent:'center', marginRight:12 }}>
+                  <Ionicons name="bed-outline" size={22} color={colors.primary} />
+                </View>
+                <View style={{ flex:1 }}>
+                  <Text style={{ fontSize:16, fontWeight:'600', color: colors.text, marginBottom:4 }} numberOfLines={2}>{address.split('\n')[0]}</Text>
+                  <Text style={{ fontSize:13, color: colors.textSecondary }} numberOfLines={1}>{address.split(',').slice(1).join(',').trim()}</Text>
+                </View>
+              </View>
+              <TextInput
+                style={{ borderWidth:1, borderColor: colors.border, borderRadius:18, minHeight:100, padding:14, fontSize:14, color: colors.text, backgroundColor: colors.background, textAlignVertical:'top', marginBottom:16 }}
+                placeholder="Additional information (apt, floor, gate code, landmark)"
+                placeholderTextColor={colors.textSecondary}
+                multiline
+                value={additionalInfo}
+                onChangeText={setAdditionalInfo}
+                autoFocus
+              />
+              <View style={{ flexDirection:'row', gap:12 }}>
+                <TouchableOpacity onPress={() => setShowAddressDetailsModal(false)} style={{ flex:1, height:46, borderRadius:16, backgroundColor: colors.card, borderWidth:1, borderColor: colors.border, alignItems:'center', justifyContent:'center' }}>
+                  <Text style={{ color: colors.textSecondary, fontWeight:'600' }}>Skip</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowAddressDetailsModal(false)} style={{ flex:2, height:46, borderRadius:16, backgroundColor: colors.primary, alignItems:'center', justifyContent:'center' }}>
+                  <Text style={{ color:'#FFF', fontWeight:'700' }}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* WhatsApp Support Button */}
       <WhatsAppButton />
@@ -985,8 +1895,82 @@ const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
   },
+  checkoutSection: {
+    paddingHorizontal: 20,
+    marginBottom: 30,
+    marginTop: 10,
+  },
+  timeSelectionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 122, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  textInputWrapper: {
+    position: 'relative',
+    marginBottom: 12,
+    width: '100%',
+  },
+  inputValidationIcon: {
+    position: 'absolute',
+    right: 12,
+    top: '50%',
+    transform: [{ translateY: -10 }],
+    zIndex: 2,
+  },
   scrollContent: {
     paddingBottom: 40,
+  },
+  additionalDetailsDisplay: {
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  additionalDetailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  additionalDetailsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+    flex: 1,
+  },
+  editDetailsButton: {
+    padding: 4,
+  },
+  additionalDetailsContent: {
+    paddingLeft: 4,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  detailDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginRight: 8,
+  },
+  detailText: {
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
+  },
+  addressInputContainer: {
+    width: '100%',
+    marginBottom: 16,
   },
   headerGradient: {
     paddingTop: 60,
@@ -1121,46 +2105,56 @@ const styles = StyleSheet.create({
   categoriesSection: {
     marginBottom: 32,
   },
+  sectionTitleContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 20,
+  },
   sectionTitle: {
     fontSize: 22,
     fontWeight: '700',
-    marginBottom: 16,
-    paddingHorizontal: 20,
+    marginBottom: 6,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    opacity: 0.8,
   },
   categoriesContainer: {
     paddingLeft: 20,
-    paddingVertical: 8,
+    paddingVertical: 12,
   },
   categoriesContent: {
     paddingRight: 20,
-    gap: 16,
-    paddingVertical: 4,
+    gap: 18,
+    paddingVertical: 8,
   },
   categoryCard: {
     position: 'relative',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderRadius: 28,
     alignItems: 'center',
-    minWidth: 150,
-    minHeight: 140,
+    minWidth: 160,
+    minHeight: 160,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 12,
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    marginVertical: 4,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+    marginVertical: 6,
+    marginHorizontal: 2,
   },
   categoryCardSelected: {
     shadowColor: Colors.light.primary,
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 15,
-    transform: [{ translateY: -2 }],
-    borderColor: Colors.light.primary + '40',
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    elevation: 16,
+    transform: [{ translateY: -4 }, { scale: 1.02 }],
+    borderColor: Colors.light.primary + '50',
+    borderWidth: 3,
   },
   categoryGradient: {
     position: 'absolute',
@@ -1168,56 +2162,97 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderRadius: 24,
+    borderRadius: 28,
   },
   categoryIconContainer: {
-    width: 84,  // Increased from 68
-    height: 84, // Increased from 68
-    borderRadius: 42, // Adjusted for the new size
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  categoryIconOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: Colors.light.primary + '10',
+    borderRadius: 45,
   },
   categoryImage: {
-    width: 60, // Increased from 48
-    height: 60, // Increased from 48
+    width: 68,
+    height: 68,
     resizeMode: 'contain',
+    zIndex: 1,
   },
   categoryName: {
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '700',
     textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 4,
+    lineHeight: 20,
+    marginBottom: 6,
+    letterSpacing: 0.2,
   },
   categoryDescription: {
     fontSize: 12,
     textAlign: 'center',
-    lineHeight: 16,
-    marginBottom: 8,
+    lineHeight: 18,
+    marginBottom: 10,
+    paddingHorizontal: 4,
+    opacity: 0.9,
   },
   selectedIndicator: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    top: 16,
+    right: 16,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   selectedDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FFFFFF',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: Colors.light.primary,
+  },
+  categoryPopularBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: Colors.light.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  categoryPopularText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   servicesSection: {
     paddingHorizontal: 20,
@@ -1483,6 +2518,45 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderTopWidth: 2,
   },
+  scentSelector: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginVertical: 16,
+  },
+  scentSelectorContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  scentIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  scentInfo: {
+    flex: 1,
+  },
+  scentTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  scentSubtitle: {
+    fontSize: 14,
+  },
+  scentPrice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  scentPriceText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginRight: 8,
+  },
   totalLabel: {
     fontSize: 20,
     fontWeight: '700',
@@ -1492,73 +2566,533 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   deliverySection: {
-    paddingHorizontal: 20,
-    marginBottom: 32,
-  },
-  deliverySectionTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    marginTop: 20,
     marginBottom: 20,
   },
-  deliveryCard: {
-    padding: 24,
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    marginBottom: 20,
+  deliverySectionGradient: {
+    borderRadius: 20,
+    overflow: 'hidden',
   },
-  inputGroup: {
+  deliverySectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
-    // Remove any TextStyle or ImageStyle properties if present
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 20,
   },
-  inputIconContainer: {
+  deliveryHeaderIcon: {
+    marginRight: 16,
+  },
+  deliveryIconGradient: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  deliveryHeaderText: {
+    flex: 1,
+  },
+  deliverySectionTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  deliverySectionSubtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+  deliveryCard: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 24,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  addressModeToggle: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 24,
+    backgroundColor: '#F5F7FA',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 122, 255, 0.1)',
+  },
+  addressModeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+  addressModeButtonActive: {
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  addressModeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  // Premium Input Card Styles
+  premiumInputCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 122, 255, 0.08)',
+  },
+  inputCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  inputCardIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  inputCardHeaderText: {
+    flex: 1,
+  },
+  inputCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+    letterSpacing: -0.2,
+  },
+  inputCardSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.8,
+  },
+  characterCounter: {
+    fontSize: 11,
+    fontWeight: '600',
+    opacity: 0.7,
+  },
+  premiumTextInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 15,
+    lineHeight: 20,
+    minHeight: 90,
+    fontWeight: '500',
+    textAlignVertical: 'top',
+  },
+  validationIconBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addDetailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+  addDetailsButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  saveForLaterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    gap: 4,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  saveForLaterText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  // Phone Input Compact Styles
+  phoneInputCompact: {
+    padding: 16,
+  },
+  phoneInputHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  phoneInputHeaderTextCompact: {
+    flex: 1,
+  },
+  premiumPhoneInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  // Full Width Layout Styles
+  fullWidthLayout: {
+    width: '100%',
+  },
+  premiumMapPickerCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  mapPickerCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mapPickerIconLarge: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
   },
-  input: {
+  mapPickerHeaderText: {
     flex: 1,
+  },
+  mapPickerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: -0.3,
+  },
+  mapPickerSubtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  mapPickerChevron: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedAddressPreview: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+  },
+  selectedAddressText: {
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  premiumTextInputLarge: {
+    borderWidth: 1,
     borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    padding: 20,
     fontSize: 16,
+    lineHeight: 22,
+    minHeight: 120,
+    fontWeight: '500',
+    textAlignVertical: 'top',
+  },
+  premiumPhoneInputFull: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 18,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  addressActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    flexWrap: 'wrap',
+  },
+  // Premium Address Display Styles
+  deliveryAddressCard: {
+    marginTop: 20,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 122, 255, 0.1)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 8,
     elevation: 2,
   },
-  checkoutSection: {
+  deliveryAddressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deliveryAddressIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  deliveryAddressInfo: {
+    flex: 1,
+  },
+  deliveryAddressLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+  },
+  deliveryAddressText: {
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  editAddressButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingBottom: 40,
+  },
+  modalContainer: {
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 16,
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalCloseButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  modalSection: {
+    marginBottom: 20,
+  },
+  modalSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+  },
+  modalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  modalLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  modalValue: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+    textAlign: 'right',
+    flex: 1,
+    marginLeft: 16,
+  },
+  modalTotal: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2563eb',
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+    marginVertical: 12,
+  },
+  // Scent Modal Styles
+  modalContent: {
+    width: '90%',
+    maxHeight: '80%',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  scentList: {
+    maxHeight: 400,
+    marginBottom: 16,
+  },
+  addressList: {
+    maxHeight: 400,
+    marginBottom: 16,
+  },
+  addressItem: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  addressItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  addressItemLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  addressItemText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  defaultBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  defaultBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  scentOption: {
+    borderWidth: 1,
+    borderRadius: 12,
+    marginBottom: 12,
+    padding: 16,
+  },
+  scentOptionContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  scentOptionInfo: {
+    flex: 1,
+  },
+  scentOptionName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  scentOptionPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  timeSelectionContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  timeSelectionLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  timeSelectionValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  timeSelectionArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scentOptionDesc: {
+    fontSize: 14,
+    opacity: 0.8,
+  },
+  closeModalButton: {
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  closeModalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   checkoutGradient: {
-    borderRadius: 20,
-    shadowColor: Colors.light.primary,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,
     elevation: 12,
-    marginVertical: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
   checkoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 32,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     gap: 12,
   },
   checkoutButtonText: {
@@ -1567,8 +3101,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
-
-// declare module '*.png' {
-//   const value: any;
-//   export default value;
-// }

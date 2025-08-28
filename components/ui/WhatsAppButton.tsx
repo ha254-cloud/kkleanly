@@ -13,7 +13,7 @@ interface WhatsAppButtonProps {
 }
 
 export const WhatsAppButton: React.FC<WhatsAppButtonProps> = ({
-  phoneNumber = '+254700000000', // Default Kenyan number
+  phoneNumber = '+254714648622', // Kleanly support team number
   message = 'Hello! I need help with my laundry service.'
 }) => {
   const { isDark } = useTheme();

@@ -11,6 +11,7 @@ import {
   ImageBackground,
   ScrollView,
   Animated,
+  Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Mail, Lock, Eye, EyeOff, Sparkles, Shield, Star } from 'lucide-react-native';
@@ -23,6 +24,7 @@ import { Input } from '../components/ui/Input';
 import { Card } from '../components/ui/Card';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Logo } from '../components/ui/Logo';
+import EmailInstructionsModal from '../components/EmailInstructionsModal';
 
 export default function LoginScreen() {
   const [isLogin, setIsLogin] = useState(true);
@@ -31,6 +33,11 @@ export default function LoginScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [showEmailInstructions, setShowEmailInstructions] = useState(false);
+  const [sentEmailAddress, setSentEmailAddress] = useState('');
   
   const { login, register, loading } = useAuth();
   const { isDark } = useTheme();
@@ -120,6 +127,54 @@ export default function LoginScreen() {
       }
       
       Alert.alert('Error', errorMessage);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!resetEmail) {
+      Alert.alert('Error', 'Please enter your email address');
+      return;
+    }
+
+    if (!resetEmail.includes('@')) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    setResetLoading(true);
+    
+    try {
+      // Use enhanced Firebase email service
+      const enhancedEmailModule = await import('../services/enhancedFirebaseEmailService');
+      const emailService = new enhancedEmailModule.EnhancedFirebaseEmailService();
+      
+      const result = await emailService.sendEnhancedPasswordResetEmail(resetEmail);
+      
+      if (result.success) {
+        // Show the email instructions modal instead of a simple alert
+        setSentEmailAddress(resetEmail);
+        setShowEmailInstructions(true);
+        setShowForgotPassword(false);
+        setResetEmail('');
+      } else {
+        throw new Error(result.error || 'Email sending failed');
+      }
+      
+    } catch (error: any) {
+      console.error('Password reset error:', error);
+      let errorMessage = 'Failed to send password reset email. Please try again.';
+      
+      if (error?.message) {
+        errorMessage = error.message;
+      } else if (error?.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email address.';
+      } else if (error?.code === 'auth/invalid-email') {
+        errorMessage = 'Please enter a valid email address.';
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -293,6 +348,18 @@ export default function LoginScreen() {
                     </TouchableOpacity>
                   </LinearGradient>
 
+                  {/* Forgot Password Button - Only show in login mode */}
+                  {isLogin && (
+                    <TouchableOpacity
+                      onPress={() => setShowForgotPassword(true)}
+                      style={styles.forgotPasswordButton}
+                    >
+                      <Text style={[styles.forgotPasswordText, { color: colors.primary }]}>
+                        Forgot Password?
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
                   <View style={styles.switchMode}>
                     <Text style={[styles.switchText, { color: colors.textSecondary }]}>
                       {isLogin ? "Don't have an account?" : 'Already have an account?'}
@@ -314,6 +381,63 @@ export default function LoginScreen() {
           </Animated.ScrollView>
         </KeyboardAvoidingView>
       </ImageBackground>
+
+      {/* Forgot Password Modal */}
+      <Modal
+        visible={showForgotPassword}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowForgotPassword(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Reset Password
+            </Text>
+            <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>
+              Enter your email address and we'll send you a link to reset your password.
+            </Text>
+            
+            <Input
+              placeholder="Enter your email"
+              value={resetEmail}
+              onChangeText={setResetEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              style={styles.modalInput}
+            />
+            
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                onPress={() => setShowForgotPassword(false)}
+                style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.surface }]}
+              >
+                <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                onPress={handleForgotPassword}
+                disabled={resetLoading}
+                style={[styles.modalButton, styles.resetButton, { backgroundColor: colors.primary }]}
+              >
+                <Text style={styles.resetButtonText}>
+                  {resetLoading ? 'Sending...' : 'Send Link'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Email Instructions Modal */}
+      <EmailInstructionsModal
+        visible={showEmailInstructions}
+        email={sentEmailAddress}
+        onClose={() => setShowEmailInstructions(false)}
+      />
+
     </SafeAreaView>
   );
 }
@@ -507,6 +631,73 @@ const styles = StyleSheet.create({
   },
   switchButtonText: {
     fontSize: 15,
+    fontWeight: '600',
+  },
+  forgotPasswordButton: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 350,
+    borderRadius: 20,
+    padding: 24,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalDescription: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalInput: {
+    marginBottom: 24,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  resetButton: {
+    // backgroundColor set dynamically
+  },
+  resetButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
   },
 });

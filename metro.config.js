@@ -16,6 +16,19 @@ config.resolver.alias = {
   '@/hooks': path.resolve(__dirname, 'hooks'),
 };
 
+// Fix for react-native-maps on web
+config.resolver.platforms = ['web', 'ios', 'android', 'native'];
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (platform === 'web' && moduleName === 'react-native-maps') {
+    // Return a web-compatible mock or empty module
+    return {
+      filePath: path.resolve(__dirname, 'web-mocks/react-native-maps.js'),
+      type: 'sourceFile'
+    };
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 // module.exports = withNativeWind(config, {
 //   input: './global.css',
 //   configPath: './tailwind.config.js',

@@ -151,7 +151,7 @@ class UserProfileService {
       // Define ordersQuery to fetch user's orders
       const ordersQuery = query(
         collection(db, 'orders'),
-        where('userId', '==', userId)
+        where('userID', '==', userId) // Changed from 'userId' to 'userID' to match Firestore rules
       );
 
       const ordersSnapshot = await getDocs(ordersQuery);
@@ -317,11 +317,16 @@ class UserProfileService {
   // Add payment method
   async addPaymentMethod(userId: string, paymentData: Omit<PaymentMethod, 'id' | 'createdAt'>): Promise<void> {
     try {
-      await addDoc(collection(db, 'userPaymentMethods'), {
+      console.log('Adding payment method for user:', userId);
+      const docData = {
         ...paymentData,
-        userId,
+        userId, // Ensure this matches the Firestore rule
         createdAt: serverTimestamp(),
-      });
+      };
+      console.log('Payment method data:', docData);
+      
+      await addDoc(collection(db, 'userPaymentMethods'), docData);
+      console.log('Payment method added successfully');
     } catch (error) {
       console.error('Error adding payment method:', error);
       throw error;
@@ -404,3 +409,20 @@ class UserProfileService {
 // Export a single instance
 const userProfileService = new UserProfileService();
 export default userProfileService;
+
+// Named exports for easier access
+export const getUserProfile = (userId: string) => userProfileService.getUserProfile(userId);
+export const updateUserProfile = (userId: string, profileData: Partial<UserProfile>) => userProfileService.updateUserProfile(userId, profileData);
+export const getUserStats = (userId: string) => userProfileService.getUserStats(userId);
+export const getSavedAddresses = (userId: string) => userProfileService.getSavedAddresses(userId);
+export const addSavedAddress = (userId: string, addressData: Omit<SavedAddress, 'id' | 'createdAt'>) => userProfileService.addSavedAddress(userId, addressData);
+export const updateSavedAddress = (userId: string, addressId: string, addressData: Partial<SavedAddress>) => userProfileService.updateSavedAddress(userId, addressId, addressData);
+export const deleteSavedAddress = (userId: string, addressId: string) => userProfileService.deleteSavedAddress(userId, addressId);
+export const getPaymentMethods = (userId: string) => userProfileService.getPaymentMethods(userId);
+export const getUserPaymentMethods = (userId: string) => userProfileService.getPaymentMethods(userId); // Alias for compatibility
+export const addPaymentMethod = (userId: string, paymentData: Omit<PaymentMethod, 'id' | 'createdAt'>) => userProfileService.addPaymentMethod(userId, paymentData);
+export const addUserPaymentMethod = (userId: string, paymentData: Omit<PaymentMethod, 'id' | 'createdAt'>) => userProfileService.addPaymentMethod(userId, paymentData); // Alias for compatibility
+export const updatePaymentMethod = (userId: string, paymentId: string, paymentData: Partial<PaymentMethod>) => userProfileService.updatePaymentMethod(userId, paymentId, paymentData);
+export const deletePaymentMethod = (userId: string, paymentId: string) => userProfileService.deletePaymentMethod(userId, paymentId);
+export const getUserPreferences = (userId: string) => userProfileService.getUserPreferences(userId);
+export const updateUserPreferences = (userId: string, preferences: UserPreferences) => userProfileService.updateUserPreferences(userId, preferences);

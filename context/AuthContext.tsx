@@ -18,6 +18,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,9 +50,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       const unsubscribe = onAuthStateChanged(authInstance, 
         (user: User | null) => {
-          console.log('AuthProvider: Auth state changed:', user ? 'User logged in' : 'User logged out');
-          setUser(user);
-          setAuthError(null);
+          console.log('AuthProvider: Auth state changed:', user ? `User logged in: ${user.email}` : 'User logged out');
+          
+          // Only set user as null if we're sure the user is actually logged out
+          if (user) {
+            setUser(user);
+            setAuthError(null);
+          } else {
+            // Double-check current user before setting to null
+            const currentUser = authInstance.currentUser;
+            if (!currentUser) {
+              setUser(null);
+            }
+          }
           setLoading(false);
         },
         (error) => {
@@ -146,6 +157,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const resetPassword = async (email: string) => {
+    console.log('🔑 AuthContext: resetPassword called with email:', email);
+    
+    try {
+      // Use our enhanced Firebase email service
+      const { EnhancedFirebaseEmailService } = await import('../services/enhancedFirebaseEmailService');
+      const emailService = new EnhancedFirebaseEmailService();
+      
+      const result = await emailService.sendEnhancedPasswordResetEmail(email);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to send password reset email');
+      }
+      
+      console.log('✅ AuthContext: Password reset completed successfully');
+    } catch (error: any) {
+      console.error('❌ AuthContext: Password reset failed:', error);
+      throw error;
+    }
+  };
+
   const value = {
     user,
     loading,
@@ -153,6 +185,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     register,
     logout,
+    resetPassword,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

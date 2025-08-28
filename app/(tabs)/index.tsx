@@ -58,8 +58,15 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ title, description, icon, onP
     >
       <LinearGradient
         colors={isPressed ? 
-          ['#F0F4FF', '#F4F8FF', '#FFFFFF'] : 
-          ['#FFFFFF', '#F8FAFF', '#F0F4FF']}
+          (isDark ? 
+            [colors.card, colors.surface, colors.background] : 
+            ['#F0F4FF', '#F4F8FF', '#FFFFFF']
+          ) : 
+          (isDark ? 
+            [colors.surface, colors.card, colors.surface] : 
+            ['#FFFFFF', '#F8FAFF', '#F0F4FF']
+          )
+        }
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[
@@ -122,28 +129,42 @@ const StatCard: React.FC<{ icon: React.ReactNode; value: string; label: string; 
   const colors = isDark ? Colors.dark : Colors.light;
 
   return (
-    <LinearGradient
-      colors={['#FFFFFF', '#F8FAFF', '#F0F4FF']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.statCardGradient}
-    >
-      <Card style={styles.statCard}>
-        <View style={styles.statContent}>
-          <View style={[styles.statIconContainer, { backgroundColor: color + '20' }]}>
-            {icon}
-            <View style={[styles.statIconGlow, { backgroundColor: color + '08' }]} />
+    <View style={styles.statCardWrapper}>
+      <LinearGradient
+        colors={isDark ? 
+          [colors.surface + 'F0', colors.card + 'E8', colors.surface + 'F0'] : 
+          ['#FFFFFF', '#FEFEFF', '#FDFDFF']
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.statCardGradient, { 
+          shadowColor: isDark ? colors.primary : '#1A3D63',
+          shadowOpacity: isDark ? 0.25 : 0.15,
+        }]}
+      >
+        <Card style={styles.statCard}>
+          <View style={styles.statContent}>
+            <View style={[styles.statIconContainer, { 
+              backgroundColor: color + '18',
+              shadowColor: color,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 8,
+              elevation: 4,
+            }]}>
+              {icon}
+              <View style={[styles.statIconGlow, { backgroundColor: color + '08' }]} />
+              <View style={[styles.statIconRing, { borderColor: color + '30' }]} />
+            </View>
+            <View style={styles.statTextContainer}>
+              <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
+              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
+            </View>
+            <View style={[styles.statShine, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]} />
           </View>
-          <View style={styles.statTextContainer}>
-            <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>{label}</Text>
-          </View>
-          <View style={[styles.statTrend, { backgroundColor: Colors.light.success + '20' }]}>
-            <TrendingUp size={12} color={Colors.light.success} />
-          </View>
-        </View>
-      </Card>
-    </LinearGradient>
+        </Card>
+      </LinearGradient>
+    </View>
   );
 };
 
@@ -207,24 +228,30 @@ const WelcomeCard: React.FC<{ user: any; colors: any }> = ({ user, colors }) => 
 const QuickStatsSection: React.FC<{ colors: any }> = ({ colors }) => {
   return (
     <View style={styles.statsSection}>
-      <Text style={[styles.statsSectionTitle, { color: colors.text }]}>
-        The Kleanly Distinction
-      </Text>
+      <View style={styles.statsSectionHeader}>
+        <Text style={[styles.statsSectionTitle, { color: colors.text }]}>
+          The Kleanly Distinction
+        </Text>
+        <Text style={[styles.statsSectionSubtitle, { color: colors.textSecondary }]}>
+          Why thousands choose us for premium laundry care
+        </Text>
+        <View style={[styles.sectionAccent, { backgroundColor: colors.primary }]} />
+      </View>
       <View style={styles.statsContainer}>
         <StatCard
-          icon={<Star size={20} color={colors.warning} />}
+          icon={<Star size={22} color={colors.warning} />}
           value="4.9"
           label="Excellence Rating"
           color={colors.warning}
         />
         <StatCard
-          icon={<Clock size={20} color={colors.primary} />}
+          icon={<Clock size={22} color={colors.primary} />}
           value="24h"
           label="Swift Turnaround"
           color={colors.primary}
         />
         <StatCard
-          icon={<Truck size={20} color={colors.success} />}
+          icon={<Truck size={22} color={colors.success} />}
           value="Complimentary"
           label="Pickup & Delivery"
           color={colors.success}
@@ -252,9 +279,9 @@ const ServicesSection: React.FC<{ services: any[]; onServicePress: () => void; c
         </View>
       </View>
       <View style={styles.servicesGrid}>
-        {services.map((service) => (
-          <ServiceCard
-            key={service.id}
+        {services.map((service, index) => (
+  <ServiceCard
+    key={`home-service-${service.id || index}-${index}`}
             title={service.title}
             description={service.description}
             icon={service.icon}
@@ -507,11 +534,12 @@ export default function HomeScreen() {
             </LinearGradient>
           </View>
         )}
+
       </ScrollView>
       
       {/* Floating WhatsApp Button */}
       <WhatsAppButton 
-        phoneNumber="+254700000000" 
+        phoneNumber="+254714648622" 
         message="Hello Kleanly! I need help with my laundry service." 
       />
     </SafeAreaView>
@@ -674,51 +702,70 @@ const styles = StyleSheet.create({
   // Stats Section Styles
   statsSection: {
     marginBottom: 40,
+    paddingHorizontal: 20,
+  },
+  statsSectionHeader: {
+    alignItems: 'center',
+    marginBottom: 28,
   },
   statsSectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 20,
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  statsSectionSubtitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 22,
+    opacity: 0.85,
+  },
+  sectionAccent: {
+    width: 40,
+    height: 3,
+    borderRadius: 1.5,
+    opacity: 0.8,
   },
   statsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 16,
+    gap: 12,
   },
   statCardGradient: {
     flex: 1,
-    borderRadius: 24,
-    shadowColor: '#1A3D63',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
+    borderRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 20,
+    elevation: 12,
   },
   statCard: {
-    padding: 18,
-    borderRadius: 24,
+    padding: 20,
+    borderRadius: 28,
     backgroundColor: 'transparent',
+    position: 'relative',
+    overflow: 'hidden',
   },
   statContent: {
     flexDirection: 'column',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
+    position: 'relative',
   },
   statIconContainer: {
     position: 'relative',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
   },
   statIconGlow: {
     position: 'absolute',
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     opacity: 0.3,
     zIndex: -1,
   },
@@ -726,16 +773,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
     marginBottom: 4,
     textAlign: 'center',
+    letterSpacing: 0.5,
   },
   statLabel: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: 18,
+    opacity: 0.9,
   },
   statTrend: {
     position: 'absolute',
@@ -746,6 +795,27 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  statCardWrapper: {
+    flex: 1,
+  },
+  statIconRing: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 1.5,
+    opacity: 0.4,
+    zIndex: -1,
+  },
+  statShine: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
+    height: 2,
+    borderRadius: 1,
+    opacity: 0.6,
   },
   
   // Services Section Styles
@@ -1082,4 +1152,5 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  
 });

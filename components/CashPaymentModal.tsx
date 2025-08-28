@@ -15,8 +15,9 @@ import { useTheme } from '../context/ThemeContext';
 import { Colors } from '../constants/Colors';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
-import { DriverReceiptModal } from './DriverReceiptModal';
+import SimpleDeliveryReceipt from './SimpleDeliveryReceipt';
 import { formatCurrency } from '../utils/formatters';
+import { Order } from '../services/orderService';
 
 const { width } = Dimensions.get('window');
 
@@ -264,25 +265,33 @@ export const CashPaymentModal: React.FC<CashPaymentModalProps> = ({
         </View>
       </Modal>
 
-      {/* Driver Receipt Modal */}
-      <DriverReceiptModal
-        visible={showDriverReceipt}
-        onClose={() => {
-          setShowDriverReceipt(false);
-          handleClose();
-        }}
-        orderData={{
-          orderId,
-          customerName: 'Customer',
-          address: customerInfo.address,
-          items: ['Laundry Service'],
-          total: orderTotal,
-          paymentMethod: 'cash',
-          amountReceived: orderTotal,
-          driverName: 'Driver',
-        }}
-        paymentDate={new Date().toISOString()}
-      />
+      {/* Simple Delivery Receipt */}
+      {showDriverReceipt && (
+        <View style={styles.receiptContainer}>
+          <SimpleDeliveryReceipt
+            order={{
+              id: orderId,
+              userID: 'customer_id',
+              customerName: 'Customer',
+              category: 'laundry',
+              items: ['Laundry Service'],
+              total: orderTotal,
+              paymentMethod: 'cash',
+              address: customerInfo.address,
+              deliveryAddress: customerInfo.address,
+              date: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+              status: 'completed',
+              recipient: {
+                name: 'Customer',
+                address: customerInfo.address,
+                phone: customerInfo.phone || ''
+              }
+            } as unknown as Order} visible={false} onClose={function (): void {
+              throw new Error('Function not implemented.');
+            } }          />
+        </View>
+      )}
     </>
   );
 };
@@ -502,5 +511,16 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+  receiptContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
   },
 });

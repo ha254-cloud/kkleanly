@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { ArrowLeft, Save, User, Mail, Phone, Calendar } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
@@ -65,11 +66,33 @@ export default function PersonalInfoScreen() {
     try {
       setSaving(true);
       await userProfileService.updateUserProfile(user.uid, formData);
-      Alert.alert('Success', 'Profile updated successfully');
-      router.back();
+      
+      // Update local profile state to reflect changes immediately
+      if (profile) {
+        setProfile({
+          ...profile,
+          ...formData,
+          updatedAt: new Date(),
+        });
+      }
+      
+      Alert.alert(
+        'Success', 
+        'Profile updated successfully', 
+        [
+          {
+            text: 'Stay Here',
+            style: 'cancel'
+          },
+          {
+            text: 'Go Back',
+            onPress: () => router.back()
+          }
+        ]
+      );
     } catch (error) {
       console.error('Error saving profile:', error);
-      Alert.alert('Error', 'Failed to update profile');
+      Alert.alert('Error', 'Failed to update profile. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -87,14 +110,24 @@ export default function PersonalInfoScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Modern Premium Header */}
+      <LinearGradient
+        colors={['#1A365D', '#2D3748', '#4A5568']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.header}
+      >
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ArrowLeft size={24} color={colors.text} />
+          <View style={styles.backButtonContainer}>
+            <ArrowLeft size={24} color="#FFFFFF" />
+          </View>
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Personal Information</Text>
+        <View style={styles.headerTextContainer}>
+          <Text style={styles.headerTitle}>Personal Information</Text>
+          <Text style={styles.headerSubtitle}>Keep your profile current and accurate</Text>
+        </View>
         <View style={styles.placeholder} />
-      </View>
+      </LinearGradient>
 
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -107,89 +140,118 @@ export default function PersonalInfoScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           <Card style={styles.formCard}>
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>First Name</Text>
-              <View style={[styles.inputContainer, { borderColor: colors.border }]}>
-                <User size={20} color={colors.textSecondary} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  value={formData.firstName}
-                  onChangeText={(text) => setFormData({ ...formData, firstName: text })}
-                  placeholder="Enter your first name"
-                  placeholderTextColor={colors.textSecondary}
-                />
+            <LinearGradient
+              colors={isDark ? ['#1F2937', '#374151'] : ['#FFFFFF', '#F8FAFC']}
+              style={styles.formCardGradient}
+            >
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>First Name</Text>
+                <View style={[styles.inputContainer, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                  <View style={styles.inputIconContainer}>
+                    <User size={22} color={colors.primary} />
+                  </View>
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={formData.firstName}
+                    onChangeText={(text) => setFormData({ ...formData, firstName: text })}
+                    placeholder="Enter your first name"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
               </View>
-            </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Last Name</Text>
-              <View style={[styles.inputContainer, { borderColor: colors.border }]}>
-                <User size={20} color={colors.textSecondary} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  value={formData.lastName}
-                  onChangeText={(text) => setFormData({ ...formData, lastName: text })}
-                  placeholder="Enter your last name"
-                  placeholderTextColor={colors.textSecondary}
-                />
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>Last Name</Text>
+                <View style={[styles.inputContainer, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                  <View style={styles.inputIconContainer}>
+                    <User size={22} color={colors.primary} />
+                  </View>
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={formData.lastName}
+                    onChangeText={(text) => setFormData({ ...formData, lastName: text })}
+                    placeholder="Enter your last name"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
               </View>
-            </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Email</Text>
-              <View style={[styles.inputContainer, { borderColor: colors.border, opacity: 0.6 }]}>
-                <Mail size={20} color={colors.textSecondary} />
-                <TextInput
-                  style={[styles.input, { color: colors.textSecondary }]}
-                  value={user?.email || ''}
-                  editable={false}
-                  placeholder="Email address"
-                  placeholderTextColor={colors.textSecondary}
-                />
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>Email Address</Text>
+                <View style={[styles.inputContainer, styles.disabledInput, { borderColor: colors.border, backgroundColor: colors.background }]}>
+                  <View style={styles.inputIconContainer}>
+                    <Mail size={22} color={colors.textSecondary} />
+                  </View>
+                  <TextInput
+                    style={[styles.input, { color: colors.textSecondary }]}
+                    value={user?.email || ''}
+                    editable={false}
+                    placeholder="Email address"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
+                <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+                  Email address cannot be modified for security reasons
+                </Text>
               </View>
-              <Text style={[styles.helperText, { color: colors.textSecondary }]}>
-                Email cannot be changed
-              </Text>
-            </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Phone Number</Text>
-              <View style={[styles.inputContainer, { borderColor: colors.border }]}>
-                <Phone size={20} color={colors.textSecondary} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  value={formData.phone}
-                  onChangeText={(text) => setFormData({ ...formData, phone: text })}
-                  placeholder="e.g., +254700000000"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="phone-pad"
-                />
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>Phone Number</Text>
+                <View style={[styles.inputContainer, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                  <View style={styles.inputIconContainer}>
+                    <Phone size={22} color={colors.primary} />
+                  </View>
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={formData.phone}
+                    onChangeText={(text) => setFormData({ ...formData, phone: text })}
+                    placeholder="e.g., +254 700 000 000"
+                    placeholderTextColor={colors.textSecondary}
+                    keyboardType="phone-pad"
+                  />
+                </View>
               </View>
-            </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Date of Birth</Text>
-              <View style={[styles.inputContainer, { borderColor: colors.border }]}>
-                <Calendar size={20} color={colors.textSecondary} />
-                <TextInput
-                  style={[styles.input, { color: colors.text }]}
-                  value={formData.dateOfBirth}
-                  onChangeText={(text) => setFormData({ ...formData, dateOfBirth: text })}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.textSecondary}
-                />
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>Date of Birth</Text>
+                <View style={[styles.inputContainer, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                  <View style={styles.inputIconContainer}>
+                    <Calendar size={22} color={colors.primary} />
+                  </View>
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={formData.dateOfBirth}
+                    onChangeText={(text) => setFormData({ ...formData, dateOfBirth: text })}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
+                <Text style={[styles.helperText, { color: colors.textSecondary }]}>
+                  Format: Year-Month-Day (e.g., 1990-12-25)
+                </Text>
               </View>
-            </View>
+            </LinearGradient>
           </Card>
 
           <View style={styles.buttonContainer}>
-            <Button
-              title={saving ? "Saving..." : "Save Changes"}
-              onPress={handleSave}
-              disabled={saving}
-              variant="primary"
-              icon={<Save size={20} color="#FFFFFF" />}
-            />
+            <LinearGradient
+              colors={['#667EEA', '#764BA2']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.saveButtonGradient}
+            >
+              <TouchableOpacity
+                onPress={handleSave}
+                disabled={saving}
+                style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+                activeOpacity={0.8}
+              >
+                <Save size={22} color="#FFFFFF" />
+                <Text style={styles.saveButtonText}>
+                  {saving ? "Saving Changes..." : "Save Profile"}
+                </Text>
+              </TouchableOpacity>
+            </LinearGradient>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -206,16 +268,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    paddingTop: 60,
+    paddingBottom: 24,
   },
   backButton: {
     padding: 8,
   },
+  backButtonContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  headerTextContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 4,
   },
   placeholder: {
     width: 40,
@@ -236,35 +318,93 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   formCard: {
-    padding: 20,
-    marginBottom: 20,
+    padding: 0,
+    marginBottom: 24,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+    overflow: 'hidden',
+  },
+  formCardGradient: {
+    padding: 28,
+    borderRadius: 24,
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   label: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 12,
+    letterSpacing: 0.3,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  disabledInput: {
+    opacity: 0.6,
+  },
+  inputIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    marginRight: 16,
   },
   input: {
     flex: 1,
-    fontSize: 16,
-    marginLeft: 12,
+    fontSize: 17,
+    fontWeight: '500',
   },
   helperText: {
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: '500',
+    fontStyle: 'italic',
   },
   buttonContainer: {
     marginBottom: 40,
+    paddingHorizontal: 4,
+  },
+  saveButtonGradient: {
+    borderRadius: 20,
+    shadowColor: '#667EEA',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+    borderRadius: 20,
+    gap: 12,
+  },
+  saveButtonDisabled: {
+    opacity: 0.7,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });

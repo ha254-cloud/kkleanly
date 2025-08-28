@@ -12,6 +12,7 @@ export const Colors = {
     success: '#10B981',
     warning: '#F59E0B',
     error: '#EF4444',
+    info: '#3B82F6',
     gradient: {
       primary: ['#1A3D63', '#4A7FA7'],
       secondary: ['#B3CFE5', '#F6FAFD'],
@@ -31,6 +32,7 @@ export const Colors = {
     success: '#10B981',
     warning: '#F59E0B',
     error: '#EF4444',
+    info: '#3B82F6',
     gradient: {
       primary: ['#4A9EFF', '#7BB3FF'],
       secondary: ['#243447', '#1E2A3A'],

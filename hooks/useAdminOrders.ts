@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Order, orderService } from '../services/orderService';
 import { auth } from '../services/firebase';
-import { isCurrentUserAdmin, requireAdmin } from '../utils/adminAuth';
+import { isCurrentUserAdmin, requireAdmin, isCurrentUserAdminAsync } from '../utils/adminAuth';
+import { waitForAuthReady } from '../services/firebase';
 
 export const useAdminOrders = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -9,95 +10,85 @@ export const useAdminOrders = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    console.log('🔥 useAdminOrders: Setting up admin orders listener');
-    
-    // 🔒 SECURITY: Check if user is admin
-    if (!isCurrentUserAdmin()) {
-      console.error('❌ Admin access denied: User is not an administrator');
-      setError('Admin access required');
-      setLoading(false);
-      return;
-    }
-    
-    // Debug authentication
-    const currentUser = auth.currentUser;
-    console.log('🔥 Admin Auth Debug - Current User:', currentUser);
-    console.log('🔥 Admin Auth Debug - User Email:', currentUser?.email);
-    console.log('🔥 Admin Auth Debug - User UID:', currentUser?.uid);
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // 🔒 SECURITY: Additional check before accessing orders
-      requireAdmin();
-      
-      // 🔍 ENHANCED DEBUG: Manual query to check all orders in database
-      console.log('🔍 Debug: Attempting to manually fetch all orders...');
-      const manualQuery = async () => {
-        try {
-          const { collection, query, orderBy, getDocs } = await import('firebase/firestore');
-          const { db } = await import('../services/firebase');
-          
-          // Try to count orders first
-          try {
-            const { count, getCountFromServer } = await import('firebase/firestore');
-            const countQuery = query(collection(db, 'orders'));
-            const countSnapshot = await getCountFromServer(countQuery);
-            console.log(`🔍 Debug: Total orders in database: ${countSnapshot.data().count}`);
-          } catch (countError) {
-            console.log('🔍 Debug: Count query not supported, continuing with normal query');
-          }
-          
-          const allOrdersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-          const querySnapshot = await getDocs(allOrdersQuery);
-          const allOrders = querySnapshot.docs.map(doc => ({ id: doc.id, data: doc.data() }));
-          
-          console.log(`🔍 Debug: Manual fetch found ${allOrders.length} orders`);
-          console.log('🔍 Debug: Orders details:', allOrders);
-          
-          // Check for specific user
-          const specificUserOrders = allOrders.filter(o => o.data.userID === 'MAakOISXk0T9D2b1Zlc0DWtXybs1');
-          if (specificUserOrders.length > 0) {
-            console.log(`✅ MANUAL QUERY: Found ${specificUserOrders.length} orders from user MAakOISXk0T9D2b1Zlc0DWtXybs1`);
-          } else {
-            console.log(`❌ MANUAL QUERY: No orders found from user MAakOISXk0T9D2b1Zlc0DWtXybs1`);
-          }
-        } catch (error) {
-          console.error('❌ Manual query failed:', error);
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+
+    const init = async () => {
+      console.log('🔧 useAdminOrders: initializing with auth readiness & retry');
+      setLoading(true);
+      setError(null);
+
+      // Wait for auth state
+      const user = await waitForAuthReady();
+      if (cancelled) return;
+      if (!user) {
+        console.log('❌ useAdminOrders: Not authenticated, skipping admin setup');
+        setError('Not authenticated');
+        setLoading(false);
+        return;
+      }
+      console.log('✅ Admin Orders Auth User:', { email: user.email, uid: user.uid });
+
+      // Retry admin check up to 3 times if initially false (covers token propagation delays)
+      let isAdmin = isCurrentUserAdmin();
+      for (let attempt = 0; attempt < 3 && !isAdmin; attempt++) {
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        isAdmin = isCurrentUserAdmin();
+      }
+      if (!isAdmin) {
+        console.log('❌ useAdminOrders: Admin access denied, user is not admin');
+        setError('Admin access required');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        requireAdmin();
+      } catch (error) {
+        console.log('❌ useAdminOrders: Admin verification failed:', error);
+        setError('Admin verification failed');
+        setLoading(false);
+        return;
+      }
+
+      // Manual preload (optional debug)
+      try {
+        const { collection, query, orderBy, getDocs } = await import('firebase/firestore');
+        const { db } = await import('../services/firebase');
+        const allOrdersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+        const qs = await getDocs(allOrdersQuery);
+        if (!cancelled) {
+          console.log(`✅ Preload admin orders: ${qs.size}`);
         }
-      };
-      
-      // Run manual check
-      manualQuery();
-      
-      // Set up real-time listener for ALL orders (admin view)
-      const unsubscribe = orderService.subscribeToAllOrders(
+      } catch (e) {
+        console.log('⚠️ Preload failed (non-fatal):', e);
+      }
+
+      // Real-time subscription
+      unsubscribe = orderService.subscribeToAllOrders(
         (allOrders) => {
-          console.log(`🔥 Admin received ${allOrders.length} orders`);
-          console.log('🔥 Admin orders details:', allOrders.map(o => ({ id: o.id, userID: o.userID, status: o.status })));
+          if (cancelled) return;
+          console.log('✅ useAdminOrders: Received orders update:', allOrders.length);
           setOrders(allOrders);
           setLoading(false);
         },
-        (error) => {
-          console.error('❌ Error in admin orders listener:', error);
+        (err) => {
+          if (cancelled) return;
+          console.error('❌ useAdminOrders: Admin orders subscription error:', err);
           setError('Failed to load admin orders');
           setLoading(false);
         }
       );
+    };
 
-      // Cleanup listener on unmount
-      return () => {
-        console.log('🔥 useAdminOrders: Cleaning up admin orders listener');
-        if (unsubscribe) {
-          unsubscribe();
-        }
-      };
-    } catch (adminError) {
-      console.error('❌ Admin authentication failed:', adminError);
-      setError('Admin authentication failed');
-      setLoading(false);
-    }
+    init();
+    return () => {
+      cancelled = true;
+      if (unsubscribe) {
+        console.log('🔧 useAdminOrders: Cleaning up admin orders subscription');
+        unsubscribe();
+      }
+    };
   }, []);
 
   const refreshOrders = async () => {

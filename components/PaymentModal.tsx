@@ -19,6 +19,7 @@ import { Colors } from '../constants/Colors';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
+import { validatePhoneNumber, formatPhoneForDisplay } from '../utils/phoneValidation';
 
 const { width, height } = Dimensions.get('window');
 
@@ -66,26 +67,26 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   const paymentMethods = [
     {
-      id: 'cash',
-      title: 'Cash on Pickup',
-      subtitle: 'Pay when we collect your items',
-      description: 'Most convenient • No processing fees',
-      icon: <Banknote size={28} color={colors.success} />,
-      color: colors.success,
-      recommended: true,
-      processingTime: 'Instant',
-      fees: 'No fees',
-    },
-    {
       id: 'mpesa',
       title: 'M-Pesa',
       subtitle: 'Pay instantly with mobile money',
-      description: 'Secure • Instant confirmation',
+      description: 'Secure • Instant confirmation • Recommended',
       icon: <Smartphone size={28} color="#00C851" />,
       color: '#00C851',
-      recommended: false,
+      recommended: true,
       processingTime: '1-2 minutes',
       fees: 'Standard M-Pesa rates apply',
+    },
+    {
+      id: 'cash',
+      title: 'Cash on Pickup',
+      subtitle: 'Pay when we collect your items',
+      description: 'Convenient • No processing fees',
+      icon: <Banknote size={28} color={colors.success} />,
+      color: colors.success,
+      recommended: false,
+      processingTime: 'Instant',
+      fees: 'No fees',
     },
     {
       id: 'card',
@@ -142,19 +143,24 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       return;
     }
 
-    if (!/^(\+254|0)[7-9]\d{8}$/.test(mpesaNumber.replace(/\s/g, ''))) {
-      Alert.alert('Error', 'Please enter a valid Kenyan phone number');
+    // Use the improved phone validation
+    const phoneValidation = validatePhoneNumber(mpesaNumber);
+    if (!phoneValidation.isValid) {
+      Alert.alert('Invalid Phone Number', phoneValidation.message || 'Please enter a valid Kenyan phone number (e.g., 0712345678, 712345678, or 254712345678)');
       return;
     }
 
     setStep('processing');
     setProcessing(true);
 
+    // Format phone number for display
+    const displayNumber = formatPhoneForDisplay(mpesaNumber);
+
     // Simulate M-Pesa payment request
     setTimeout(() => {
       Alert.alert(
         '📱 M-Pesa Payment Request Sent',
-        `Check your phone ${mpesaNumber} for the payment prompt.\n\nAmount: KSH ${(total || 0).toLocaleString()}\nMerchant: Kleanly Services\n\nComplete the payment within 5 minutes.`,
+        `Check your phone ${displayNumber} for the payment prompt.\n\nAmount: KSH ${(total || 0).toLocaleString()}\nMerchant: Kleanly Services\n\nComplete the payment within 5 minutes.`,
         [
           {
             text: 'Payment Completed',
@@ -361,11 +367,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             label="M-Pesa Number"
             value={mpesaNumber}
             onChangeText={setMpesaNumber}
-            placeholder="+254 700 000 000"
+            placeholder="0712345678 or 0112345678"
             keyboardType="phone-pad"
             leftIcon={<Smartphone size={20} color={colors.textSecondary} />}
             style={styles.mpesaInput}
           />
+
+          <Text style={[styles.phoneFormatHint, { color: colors.textSecondary }]}>
+            Accepted formats: 0712345678, 0112345678, 712345678, 112345678, 254712345678, +254712345678
+          </Text>
 
           <View style={styles.mpesaSteps}>
             <Text style={[styles.stepsTitle, { color: colors.text }]}>
@@ -796,7 +806,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   mpesaInput: {
+    marginBottom: 12,
+  },
+  phoneFormatHint: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
     marginBottom: 20,
+    paddingHorizontal: 16,
   },
   mpesaSteps: {
     gap: 12,

@@ -73,14 +73,14 @@ export default function HelpSupportScreen() {
     {
       icon: <Mail size={24} color={colors.warning} />,
       title: 'Email Support',
-      subtitle: 'support@kleanly.co.ke',
+      subtitle: 'kleanlyspt@gmail.com',
       action: () => sendEmail(),
       color: colors.warning,
     },
   ];
 
   const openWhatsApp = async () => {
-    const phoneNumber = '+254700000000';
+    const phoneNumber = '+254714648622';
     const message = 'Hello Kleanly! I need help with my account.';
     const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     
@@ -98,11 +98,11 @@ export default function HelpSupportScreen() {
   };
 
   const makePhoneCall = () => {
-    Linking.openURL('tel:+254700000000');
+    Linking.openURL('tel:+254714648622');
   };
 
   const sendEmail = () => {
-    Linking.openURL('mailto:support@kleanly.co.ke?subject=Support Request');
+    Linking.openURL('mailto:kleanlyspt@gmail.com?subject=Support Request');
   };
 
   const handleFAQPress = (faq: FAQ) => {

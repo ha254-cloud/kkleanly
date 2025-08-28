@@ -177,6 +177,33 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, onPress, onOrderUpd
           <Text style={[styles.address, { color: colors.textSecondary }]}>
             {order.address}
           </Text>
+          {/* Display detailed address information if available */}
+          {order.addressDetails && (
+            <View style={styles.addressDetailsContainer}>
+              {order.addressDetails.buildingName && (
+                <Text style={[styles.addressDetail, { color: colors.textSecondary }]}>
+                  🏢 {order.addressDetails.buildingName}
+                </Text>
+              )}
+              {(order.addressDetails.floorNumber || order.addressDetails.doorNumber) && (
+                <Text style={[styles.addressDetail, { color: colors.textSecondary }]}>
+                  📍 {order.addressDetails.floorNumber && `Floor ${order.addressDetails.floorNumber}`}
+                  {order.addressDetails.floorNumber && order.addressDetails.doorNumber && ', '}
+                  {order.addressDetails.doorNumber && `Door ${order.addressDetails.doorNumber}`}
+                </Text>
+              )}
+              {order.addressDetails.placeType && (
+                <Text style={[styles.addressDetail, { color: colors.textSecondary }]}>
+                  🏠 {order.addressDetails.placeType.charAt(0).toUpperCase() + order.addressDetails.placeType.slice(1)}
+                </Text>
+              )}
+              {order.addressDetails.additionalInfo && (
+                <Text style={[styles.addressDetail, { color: colors.textSecondary }]}>
+                  📝 {order.addressDetails.additionalInfo}
+                </Text>
+              )}
+            </View>
+          )}
           <Text style={[styles.items, { color: colors.textSecondary }]}>
             {order.items?.length || 0} items
           </Text>
@@ -290,6 +317,18 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     lineHeight: 18,
     fontWeight: '500',
+  },
+  addressDetailsContainer: {
+    marginTop: 4,
+    marginBottom: 8,
+    paddingLeft: 8,
+    borderLeftWidth: 2,
+    borderLeftColor: '#14b8a6',
+  },
+  addressDetail: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 2,
   },
   items: {
     fontSize: 13,

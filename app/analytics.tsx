@@ -30,7 +30,7 @@ export default function AnalyticsScreen() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // Check if user is admin
-  const isAdmin = user?.email === 'admin@kleanly.co.ke';
+  const isAdmin = user?.email === 'kleanlyspt@gmail.com';
 
   useEffect(() => {
     if (!isAdmin) {

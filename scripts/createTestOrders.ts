@@ -11,15 +11,15 @@ const testOrders = [
     createdAt: new Date().toISOString(),
     total: 1250,
     address: 'Westlands, Nairobi',
-    phone: '+254700000000',
+    phone: '+254714648622',
     pickup: {
       address: 'Westlands Shopping Mall, Nairobi',
-      phone: '+254700000000',
+      phone: '+254714648622',
       notes: 'Ground floor, near Nakumatt entrance'
     },
     delivery: {
       address: 'Westlands, Nairobi',
-      phone: '+254700000000',
+      phone: '+254714648622',
       notes: 'Same location as pickup'
     }
   },
@@ -31,15 +31,15 @@ const testOrders = [
     createdAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
     total: 2500,
     address: 'Karen, Nairobi',
-    phone: '+254700000000',
+    phone: '+254714648622',
     pickup: {
       address: 'Karen Shopping Centre, Nairobi',
-      phone: '+254700000000',
+      phone: '+254714648622',
       notes: 'First floor, near Java House'
     },
     delivery: {
       address: 'Karen, Nairobi',
-      phone: '+254700000000',
+      phone: '+254714648622',
       notes: 'Residential area near the shopping center'
     }
   },
@@ -51,15 +51,15 @@ const testOrders = [
     createdAt: new Date(Date.now() - 7200000).toISOString(), // 2 hours ago
     total: 800,
     address: 'CBD, Nairobi',
-    phone: '+254700000000',
+    phone: '+254714648622',
     pickup: {
       address: 'City Market, Nairobi',
-      phone: '+254700000000',
+      phone: '+254714648622',
       notes: 'Main entrance'
     },
     delivery: {
       address: 'CBD Office Building, Nairobi',
-      phone: '+254700000000',
+      phone: '+254714648622',
       notes: 'Reception desk, 5th floor'
     }
   }
@@ -90,4 +90,4 @@ export async function createTestOrders() {
 }
 
 // Uncomment the line below and run this script to create test orders
-// createTestOrders();
+createTestOrders();

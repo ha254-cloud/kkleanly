@@ -11,13 +11,14 @@ import {
   Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
-import { User, Settings, Moon, Sun, LogOut, CircleHelp as HelpCircle, Bell, MapPin, CreditCard, Star, Gift, Shield, ChartBar as BarChart3, ShoppingBag, Package } from 'lucide-react-native';
+import { User, Settings, Moon, Sun, LogOut, CircleHelp as HelpCircle, Bell, MapPin, CreditCard, Star, Gift, ChartBar as BarChart3, ShoppingBag, Package, Shield } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Colors } from '../../constants/Colors';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { isCurrentUserAdmin, ADMIN_EMAIL } from '../../utils/adminAuth';
 
 const { width } = Dimensions.get('window');
 
@@ -26,8 +27,14 @@ export default function ProfileScreen() {
   const { isDark, theme, setTheme } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
   
-  // Check if user is admin
-  const isAdmin = user?.email === 'admin@kleanly.co.ke';
+  // Check if user is admin using proper utility
+  const isAdmin = isCurrentUserAdmin();
+  
+  // Debug admin status
+  console.log('🔍 DEBUG: Current user email:', user?.email);
+  console.log('🔍 DEBUG: Expected admin email:', ADMIN_EMAIL);
+  console.log('🔍 DEBUG: Is admin?', isAdmin);
+  console.log('🔍 DEBUG: User object:', user);
 
   const handleLogout = () => {
     Alert.alert(
@@ -84,6 +91,12 @@ export default function ProfileScreen() {
       subtitle: 'View business metrics and insights',
       color: '#8B5CF6',
       onPress: () => router.push('/admin/analytics'),
+    }, {
+      icon: <Settings size={20} color="#EF4444" />,
+      title: 'Admin Orders',
+      subtitle: 'Manage all customer orders',
+      color: '#EF4444',
+      onPress: () => router.push('/admin-orders'),
     }] : []),
     {
       icon: <MapPin size={20} color="#3B82F6" />,
@@ -125,7 +138,7 @@ export default function ProfileScreen() {
       title: 'Help & Support',
       subtitle: 'Get help or contact support',
       color: '#6366F1',
-      onPress: () => Alert.alert('Support', 'Email: support@kleanly.co.ke\nPhone: +254 700 000 000'),
+      onPress: () => Alert.alert('Support', 'Email: kleanlyspt@gmail.com\nPhone: +254 700 000 000'),
     },
   ];
 
@@ -149,15 +162,17 @@ export default function ProfileScreen() {
                 </View>
                 <View style={styles.userDetails}>
                   <Text style={styles.userName}>
-                    {user?.email?.split('@')[0] || 'User'}
+                    {isAdmin ? 'Administrator' : (user?.email?.split('@')[0] || 'User')}
                   </Text>
                   <Text style={styles.userEmail}>
                     {user?.email || 'user@example.com'}
                   </Text>
-                  <View style={styles.membershipBadge}>
-                    <Shield size={12} color="#FFFFFF" />
-                    <Text style={styles.membershipText}>Premium Member</Text>
-                  </View>
+                  {isAdmin && (
+                    <View style={styles.adminBadge}>
+                      <Shield size={12} color="#FFFFFF" />
+                      <Text style={styles.adminText}>Administrator</Text>
+                    </View>
+                  )}
                 </View>
               </View>
             </View>
@@ -303,16 +318,16 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.9)',
     marginBottom: 8,
   },
-  membershipBadge: {
+  adminBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(34, 197, 94, 0.9)',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
     alignSelf: 'flex-start',
   },
-  membershipText: {
+  adminText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',

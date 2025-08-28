@@ -7,19 +7,54 @@ import {
   orderBy, 
   getDocs, 
   doc, 
-  updateDoc, 
+  updateDoc,
   getDoc,
   onSnapshot,
-  Unsubscribe
+  Unsubscribe,
+  serverTimestamp,
+  arrayUnion
 } from 'firebase/firestore';
 import { isCurrentUserAdmin } from '../utils/adminAuth';
 
 export interface Order {
+  completedAt: string;
+  specialInstructions: string;
+  phone: any;
+  isPaid: boolean;
+  paymentStatus?: 'unpaid' | 'paid' | 'partial' | 'refunded';
+  paymentMethod?: 'cash' | 'mpesa' | 'card' | 'other';
+  paymentAmount?: number | null;
+  transactionId?: string | null;
+  paidAt?: any; // Firestore Timestamp | null
+  paymentUpdatedBy?: { uid?: string | null; role?: 'driver' | 'admin' | 'system' | 'user' } | null;
+  paymentEvents?: Array<{
+    type: 'status_change';
+    status: 'unpaid' | 'paid' | 'partial' | 'refunded';
+    method?: 'cash' | 'mpesa' | 'card' | 'other';
+    amount?: number;
+    transactionId?: string;
+    note?: string;
+    at: any; // Firestore Timestamp
+    actor?: { uid?: string | null; role?: string };
+  }>;
   id?: string;
   userID: string;
   category: string;
   date: string;
   address: string;
+  // Newly added optional estate/neighborhood/sub-estate name extracted from location picker
+  estate?: string;
+  // Detailed address information from ModernLocationPicker
+  addressDetails?: {
+    mainAddress?: string;
+    estate?: string;
+    buildingName?: string;
+    floorNumber?: string;
+    doorNumber?: string;
+    additionalInfo?: string;
+    label?: string;
+    placeType?: string;
+  };
   status: 'pending' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled';
   createdAt: string;
   items: string[];
@@ -29,6 +64,12 @@ export interface Order {
   notes?: string;
   cancelledAt?: string;
   cancellationReason?: string;
+  // Customer contact information
+  customerName?: string;
+  userEmail?: string;
+  customerEmail?: string;
+  deliveryAddress?: string;
+  deliveryTime?: string;
 }
 
 export const orderService = {
@@ -47,10 +88,17 @@ export const orderService = {
         createdAt: new Date().toISOString(),
       };
       
-      console.log('🔥 Final order object:', order);
+      // Remove undefined, null, and empty string fields to prevent Firestore errors
+      const cleanOrder = Object.fromEntries(
+        Object.entries(order).filter(([_, value]) => {
+          return value !== undefined && value !== null && value !== '';
+        })
+      );
+      
+      console.log('🔥 Final order object (cleaned):', cleanOrder);
       console.log('🔥 Attempting to save to Firestore...');
       
-      const docRef = await addDoc(collection(db, 'orders'), order);
+      const docRef = await addDoc(collection(db, 'orders'), cleanOrder);
       
       console.log('✅ Order created successfully!');
       console.log('✅ Document ID:', docRef.id);
@@ -153,34 +201,49 @@ export const orderService = {
     }
   },
 
-  async getOrderById(orderId: string): Promise<Order | null> {
+  async getOrderById(orderId) {
     try {
-      const orderRef = doc(db, 'orders', orderId);
-      const docSnap = await getDoc(orderRef);
+      console.log('Getting order by ID:', orderId);
+      const orderDoc = await getDoc(doc(db, 'orders', orderId));
       
-      if (docSnap.exists()) {
-        return { 
-          id: docSnap.id, 
-          ...docSnap.data() 
-        } as Order;
-      }
-      return null;
-    } catch (error) {
-      if (error.code === 'unavailable') {
-        console.log('Firestore temporarily unavailable');
+      if (!orderDoc.exists()) {
+        console.log('Order not found:', orderId);
         return null;
       }
+      
+      return { id: orderDoc.id, ...orderDoc.data() } as Order;
+    } catch (error) {
+      console.error('Error getting order by ID:', error);
       throw error;
     }
   },
 
-  // 🚀 NEW: Real-time subscription to user orders
   subscribeToUserOrders(
     userID: string, 
     onOrdersUpdate: (orders: Order[]) => void,
     onError?: (error: any) => void
   ): Unsubscribe {
+    // 🔒 SECURITY: Check if user is authenticated first
+    if (!auth.currentUser) {
+      console.error('❌ User not authenticated for subscribeToUserOrders');
+      if (onError) {
+        onError(new Error('Authentication required to view orders'));
+      }
+      return () => {}; // Return empty unsubscribe function
+    }
+
+    // 🔒 SECURITY: Ensure user can only access their own orders (unless admin)
+    if (!isCurrentUserAdmin() && auth.currentUser.uid !== userID) {
+      console.error('❌ Access denied: Cannot access orders for another user');
+      if (onError) {
+        onError(new Error('Access denied: Cannot access orders for another user'));
+      }
+      return () => {}; // Return empty unsubscribe function
+    }
+
     try {
+      console.log('🔥 OrderService: Setting up subscription for user:', userID);
+      
       // 🔧 TEMPORARY FIX: Remove orderBy to avoid composite index requirement
       // We'll sort on the client-side instead
       const q = query(
@@ -191,17 +254,30 @@ export const orderService = {
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
+          console.log('📱 OrderService: Firestore snapshot received, docs count:', snapshot.docs.length);
+          
           const orders: Order[] = snapshot.docs.map(docSnap => ({
             id: docSnap.id,
             ...docSnap.data()
           } as Order));
           
+          // 🔧 REMOVE DUPLICATES: Ensure no duplicate orders by ID
+          const uniqueOrders = orders.reduce((acc, current) => {
+            const existingOrder = acc.find(order => order.id === current.id);
+            if (!existingOrder) {
+              acc.push(current);
+            } else {
+              console.warn(`⚠️ Duplicate order detected and removed: ${current.id}`);
+            }
+            return acc;
+          }, [] as Order[]);
+          
           // 🔧 CLIENT-SIDE SORTING: Sort by createdAt descending to match expected behavior
-          const sortedOrders = orders.sort((a, b) => 
+          const sortedOrders = uniqueOrders.sort((a, b) => 
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
           
-          console.log(`📱 Real-time update: ${sortedOrders.length} orders received (sorted client-side)`);
+          console.log(`📱 Real-time update: ${sortedOrders.length} orders received (${orders.length - uniqueOrders.length} duplicates removed, sorted client-side)`);
           
           // Log order details for debugging
           if (sortedOrders.length > 0) {
@@ -216,7 +292,20 @@ export const orderService = {
           onOrdersUpdate(sortedOrders);
         },
         (error) => {
-          console.error('Real-time orders listener error:', error);
+          console.error('❌ Real-time orders listener error:', error);
+          console.error('❌ Error code:', error.code);
+          console.error('❌ Error message:', error.message);
+          console.error('❌ User ID:', userID);
+          
+          // Provide more specific error handling
+          if (error.code === 'permission-denied') {
+            console.error('❌ Permission denied - check Firestore rules and user authentication');
+          } else if (error.code === 'unavailable') {
+            console.error('❌ Firestore service unavailable');
+          } else if (error.code === 'unauthenticated') {
+            console.error('❌ User not authenticated - check auth state');
+          }
+          
           if (onError) {
             onError(error);
           }
@@ -239,6 +328,15 @@ export const orderService = {
     onOrdersUpdate: (orders: Order[]) => void,
     onError?: (error: any) => void
   ): Unsubscribe {
+    // 🔒 SECURITY: Check if user is authenticated first
+    if (!auth.currentUser) {
+      console.error('❌ User not authenticated for subscribeToAllOrders');
+      if (onError) {
+        onError(new Error('Authentication required to view orders'));
+      }
+      return () => {}; // Return empty unsubscribe function
+    }
+
     // 🔒 SECURITY: Only allow admin to subscribe to all orders
     if (!isCurrentUserAdmin()) {
       console.error('❌ Admin access denied: subscribeToAllOrders requires admin privileges');
@@ -257,7 +355,7 @@ export const orderService = {
         orderBy('createdAt', 'desc')
       );
       
-            // 🔍 ENHANCED DEBUG: Force fresh data fetch first
+            // 🔍 ENHANCED DEBUG: Force fresh data fetch from server...
       console.log('🔍 CRITICAL DEBUG: Forcing fresh data fetch from server...');
       console.log('🔍 Admin project ID:', db.app.options.projectId);
       console.log('🔍 Admin auth user:', auth.currentUser?.uid);
@@ -348,5 +446,65 @@ export const orderService = {
       }
       return () => {};
     }
-  }
+  },
+
+  updateOrderPaymentStatus: async (
+    orderId: string,
+    payload: {
+      status: 'unpaid' | 'paid' | 'partial' | 'refunded';
+      method?: 'cash' | 'mpesa' | 'card' | 'other';
+      amount?: number;
+      transactionId?: string;
+      note?: string;
+      actorId?: string;
+      actorRole?: 'driver' | 'admin' | 'system' | 'user';
+    }
+  ) => {
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+
+      const actor = {
+        uid: payload.actorId ?? auth.currentUser?.uid ?? null,
+        role: payload.actorRole ?? 'driver',
+      };
+
+      // Top-level updates can use serverTimestamp()
+      const update: any = {
+        paymentStatus: payload.status,
+        paymentMethod: payload.method ?? null,
+        paymentAmount: typeof payload.amount === 'number' ? payload.amount : null,
+        transactionId: payload.transactionId ?? null,
+        paymentUpdatedBy: actor,
+        updatedAt: serverTimestamp(),
+        lastPaymentEventAt: serverTimestamp(),
+      };
+      if (payload.status === 'paid') {
+        update.paidAt = serverTimestamp();
+      }
+
+      // Build event WITHOUT serverTimestamp() and WITHOUT undefined fields
+      const event: any = {
+        type: 'status_change',
+        status: payload.status,
+        at: new Date().toISOString(), // client timestamp OK inside arrayUnion
+        actor,
+      };
+      if (payload.method != null) event.method = payload.method;
+      if (typeof payload.amount === 'number') event.amount = payload.amount;
+      if (payload.transactionId != null) event.transactionId = payload.transactionId;
+      if (payload.note != null) event.note = payload.note;
+
+      update.paymentEvents = arrayUnion(event);
+
+      await updateDoc(orderRef, update);
+      return true;
+    } catch (error) {
+      console.error('Error updating order payment status:', error);
+      throw error;
+    }
+  },
 };
+
+export async function assignDriverToOrder(orderId: string, driverUid: string) {
+  await updateDoc(doc(db, 'orders', orderId), { assignedDriverId: driverUid });
+}

@@ -21,7 +21,6 @@ import GoogleMapComponent from './GoogleMapComponent';
 import { LocationCoords, mapsService } from '../services/mapsService';
 import { locationService } from '../services/locationService';
 import { notificationService } from '../services/notificationService';
-import { isCurrentUserAdmin, isCurrentUserDriver } from '../utils/adminAuth';
 
 const { width, height } = Dimensions.get('window');
 
@@ -42,174 +41,138 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
   const [tracking, setTracking] = useState<DeliveryTracking | null>(null);
   const [driver, setDriver] = useState<Driver | null>(null);
   const [loading, setLoading] = useState(true);
-  const [hasPermissions, setHasPermissions] = useState(false);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const [customerLocation, setCustomerLocation] = useState<LocationCoords | null>(null);
   const [pickupLocation, setPickupLocation] = useState<LocationCoords | null>(null);
   const [eta, setEta] = useState<string>('');
   const [distance, setDistance] = useState<string>('');
-  const [lastNotificationTime, setLastNotificationTime] = useState<number>(0);
 
-  // Check user permissions on component mount
+  console.log('🗺️ LiveTrackingMap initialized for orderId:', orderId);
+
   useEffect(() => {
-    const checkPermissions = async () => {
-      if (!user) {
-        setHasPermissions(false);
-        setLoading(false);
-        return;
-      }
-      
-      try {
-        const isAdmin = isCurrentUserAdmin();
-        const isDriver = await isCurrentUserDriver();
-        setHasPermissions(isAdmin || isDriver);
-      } catch (error) {
-        console.error('Error checking user permissions:', error);
-        setHasPermissions(false);
-      }
-      setLoading(false);
+    console.log('🗺️ Setting up LiveTrackingMap for orderId:', orderId);
+    
+    // Show map immediately with default Nairobi location
+    const defaultLocation: LocationCoords = {
+      latitude: -1.2921,
+      longitude: 36.8219
     };
+    setCustomerLocation(defaultLocation);
+    setPickupLocation(defaultLocation);
     
-    checkPermissions();
-  }, [user]);
+    // Show map immediately, don't wait for any data
+    setLoading(false);
 
-  useEffect(() => {
-    // Only subscribe to delivery tracking if user has permissions
-    if (!hasPermissions || loading) {
-      return;
-    }
-    // Only subscribe to delivery tracking if user has permissions
-    if (!hasPermissions || loading) {
+    if (!orderId) {
+      console.error('❌ No orderId provided');
       return;
     }
 
-    // Subscribe to real-time tracking updates with error handling
-    const unsubscribe = driverService.subscribeToDeliveryTracking(orderId, async (trackingData) => {
-      setTracking(trackingData);
-      
-      if (trackingData?.driverId) {
-        try {
-          const driverData = await driverService.getDriverById(trackingData.driverId);
-          setDriver(driverData);
-        } catch (error) {
-          console.error('Error fetching driver:', error);
-        }
-      }
-      
-      // Initialize locations after tracking data is loaded
-      if (trackingData) {
-        try {
-          await initializeLocations(trackingData);
-        } catch (locationError) {
-          console.error('Failed to initialize locations:', locationError);
-          // Set basic fallback locations
-          setCustomerLocation({ latitude: -1.2921, longitude: 36.8219 });
-          setPickupLocation({ latitude: -1.2921, longitude: 36.8219 });
-        }
-      } else {
-        // No tracking data yet, set default locations
-        setCustomerLocation({ latitude: -1.2921, longitude: 36.8219 });
-        setPickupLocation({ latitude: -1.2921, longitude: 36.8219 });
-      }
-      
-      setLoading(false);
-    });
+    // Load tracking data in background without blocking UI
+    const loadTrackingData = async () => {
+      try {
+        // Subscribe to delivery tracking updates
+        const unsubscribe = driverService.subscribeToDeliveryTracking(orderId, async (trackingData) => {
+          console.log('📦 Tracking data received:', trackingData);
+          setTracking(trackingData);
+          
+          // Load driver data in background
+          if (trackingData?.driverId) {
+            setTimeout(() => {
+              driverService.getDriverById(trackingData.driverId)
+                .then(driverData => {
+                  console.log('👤 Driver data loaded:', driverData);
+                  setDriver(driverData);
+                })
+                .catch(error => {
+                  console.error('Error fetching driver:', error);
+                });
+            }, 100);
+          }
 
-    unsubscribeRef.current = unsubscribe;
-    
-    // Initialize notifications
-    notificationService.initialize();
+          // Load locations in background
+          setTimeout(() => {
+            loadLocations(trackingData);
+          }, 200);
+        });
+
+        unsubscribeRef.current = unsubscribe;
+      } catch (error) {
+        console.error('Error setting up tracking subscription:', error);
+      }
+    };
+
+    // Start loading data after a short delay to let UI render first
+    setTimeout(loadTrackingData, 50);
 
     return () => {
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
       }
     };
-  }, [orderId, hasPermissions, loading]);
+  }, [orderId]);
 
-  const initializeLocations = async (trackingData?: DeliveryTracking | null) => {
+  const loadLocations = async (trackingData: DeliveryTracking) => {
     try {
-      console.log('🗺️ Initializing locations for order:', orderId);
-      const currentTracking = trackingData || tracking;
-      console.log('📍 Tracking data:', currentTracking);
+      console.log('📍 Loading location data from tracking:', trackingData);
       
-      // Set default locations first (Nairobi, Kenya)
-      const defaultCustomerLocation: LocationCoords = {
-        latitude: -1.2921,
-        longitude: 36.8219
-      };
-      
-      const defaultPickupLocation: LocationCoords = {
-        latitude: -1.2921,
-        longitude: 36.8219
+      // Helper: determine if provided coordinates look like placeholders (random Nairobi seed or (0,0))
+      const looksLikePlaceholder = (lat?: number, lng?: number, address?: string) => {
+        if (lat === undefined || lng === undefined) return true;
+        if (lat === 0 && lng === 0) return true;
+        // Default Nairobi center used as placeholder in app
+        const defaultLat = -1.2921;
+        const defaultLng = 36.8219;
+        const nearDefault = Math.abs(lat - defaultLat) < 0.02 && Math.abs(lng - defaultLng) < 0.02;
+        if (!nearDefault) return false;
+        if (!address) return true;
+        // If address references a different city (e.g., Eldoret, Mombasa) or has a plus code, treat as placeholder
+        if (/eldoret|mombasa|kisumu|nakuru|naivasha|thika/i.test(address)) return true;
+        if (/[A-Z0-9]{4}\+[A-Z0-9]{2,3}/i.test(address)) return true; // Plus Code
+        return false;
       };
 
-      console.log('📍 Setting default locations...');
-      setCustomerLocation(defaultCustomerLocation);
-      setPickupLocation(defaultPickupLocation);
+      const deliveryAddress = trackingData.deliveryLocation?.address;
+      const dLat = trackingData.deliveryLocation?.latitude;
+      const dLng = trackingData.deliveryLocation?.longitude;
 
-      // Get order data as fallback for customer address
-      let customerAddress = '';
-      try {
-        console.log('📍 Fetching order data for address...');
-        const orderData = await orderService.getOrderById(orderId);
-        if (orderData?.address) {
-          customerAddress = orderData.address;
-          console.log('📍 Found customer address from order:', customerAddress);
-        }
-      } catch (orderError) {
-        console.log('Could not fetch order data:', orderError);
+      // Without external geocoding, just trust provided coords unless clearly placeholder
+      if (dLat && dLng && !looksLikePlaceholder(dLat, dLng, deliveryAddress)) {
+        const customerCoords = { latitude: dLat, longitude: dLng };
+        setCustomerLocation(customerCoords);
+        console.log('📍 Using provided customer coordinates:', customerCoords);
+      } else {
+        // Keep default; still show address overlay so driver sees textual destination
+        console.log('📍 Placeholder or missing delivery coordinates – default map center retained');
       }
 
-      // Try to geocode actual addresses if available
-      try {
-        // Use delivery location address from tracking data, or fallback to order address
-        const addressToGeocode = currentTracking?.deliveryLocation?.address || customerAddress;
-        console.log('📍 Address to geocode:', addressToGeocode);
-        
-        if (addressToGeocode) {
-          console.log('📍 Geocoding customer address...');
-          const customerCoords = await mapsService.geocodeAddress(addressToGeocode);
-          if (customerCoords) {
-            console.log('📍 Customer coordinates found:', customerCoords);
-            setCustomerLocation(customerCoords);
-          }
-        }
-
-        // Use pickup location from tracking data
-        if (currentTracking?.pickupLocation?.address) {
-          console.log('📍 Geocoding pickup address:', currentTracking.pickupLocation.address);
-          const pickupCoords = await mapsService.geocodeAddress(currentTracking.pickupLocation.address);
-          if (pickupCoords) {
-            console.log('📍 Pickup coordinates found:', pickupCoords);
-            setPickupLocation(pickupCoords);
-          }
-        } else {
-          // Use default pickup location (Kleanly office in Nairobi)
-          console.log('📍 Using default pickup location for Nairobi...');
-          const kleanlyOffice = await mapsService.geocodeAddress('Nairobi, Kenya');
-          if (kleanlyOffice) {
-            console.log('📍 Nairobi coordinates found:', kleanlyOffice);
-            setPickupLocation(kleanlyOffice);
-          }
-        }
-      } catch (geocodeError) {
-        console.log('Geocoding failed, using default locations:', geocodeError);
-        // Default locations are already set above
+      if (trackingData.pickupLocation?.latitude && trackingData.pickupLocation?.longitude) {
+        const pickupCoords = {
+          latitude: trackingData.pickupLocation.latitude,
+          longitude: trackingData.pickupLocation.longitude
+        };
+        setPickupLocation(pickupCoords);
+        console.log('📍 Using direct pickup coordinates:', pickupCoords);
+      } else if (trackingData.pickupLocation?.address) {
+        // Only geocode if no coordinates available
+  // No geocoding function available; leave default or provided coords
       }
-
+      
     } catch (error) {
-      console.error('Error initializing locations:', error);
-      // Set fallback default locations for Nairobi
-      setCustomerLocation({ latitude: -1.2921, longitude: 36.8219 });
-      setPickupLocation({ latitude: -1.2921, longitude: 36.8219 });
+      console.error('❌ Error loading location data:', error);
+      // Don't throw the error - let the component continue with default locations
     }
   };
 
-  // Update ETA when driver location changes
+  // Update ETA when driver location changes - but debounce it to avoid too frequent calls
   useEffect(() => {
     if (tracking?.currentLocation && customerLocation) {
-      updateETA();
+      // Debounce ETA updates to avoid excessive API calls
+      const timer = setTimeout(() => {
+        updateETA();
+      }, 2000); // Wait 2 seconds before updating ETA
+      
+      return () => clearTimeout(timer);
     }
   }, [tracking?.currentLocation, customerLocation]);
 
@@ -217,20 +180,34 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
     if (!tracking?.currentLocation || !customerLocation) return;
 
     try {
-      const etaInfo = await mapsService.calculateETA(tracking.currentLocation, customerLocation);
-      if (etaInfo) {
-        setEta(etaInfo.duration);
-        setDistance(etaInfo.distance);
-        
-        // Send ETA notification if significant change (every 5 minutes max)
-        const now = Date.now();
-        if (now - lastNotificationTime > 300000) { // 5 minutes
-          await notificationService.sendETAUpdateNotification(orderId, etaInfo.duration);
-          setLastNotificationTime(now);
-        }
+      // Only calculate ETA if we have actual coordinates (not default ones)
+      if (customerLocation.latitude === -1.2921 && customerLocation.longitude === 36.8219) {
+        console.log('📍 Skipping ETA calculation - using default coordinates');
+        setEta('Calculating...');
+        setDistance('...');
+        return;
       }
+
+      // Calculate ETA in background without blocking UI
+      setTimeout(async () => {
+        try {
+          // Approximate distance & ETA using Haversine (mapsService.calculateDistance in km)
+          const km = mapsService.calculateDistance(
+            { latitude: tracking.currentLocation.latitude, longitude: tracking.currentLocation.longitude },
+            { latitude: customerLocation.latitude, longitude: customerLocation.longitude }
+          );
+          const avgSpeedKmh = 25; // heuristic urban speed
+          const hours = km / avgSpeedKmh;
+          const minutes = Math.round(hours * 60);
+          setEta(minutes <= 1 ? '1 min' : `${minutes} mins`);
+          setDistance(km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`);
+        } catch (error) {
+          console.warn('⚠️ Could not calculate ETA:', error);
+        }
+      }, 100);
     } catch (error) {
-      console.error('Error calculating ETA:', error);
+      console.warn('⚠️ Error in ETA calculation setup:', error);
+      // Don't throw - ETA is nice to have but not critical
     }
   };
 
@@ -288,31 +265,27 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.text }]}>
-            Loading tracking information...
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
-  // Show message for users without tracking permissions (regular customers)
-  if (!hasPermissions) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Card style={styles.noTrackingCard}>
-          <View style={styles.noTrackingContainer}>
-            <Package size={48} color={colors.primary} />
-            <Text style={[styles.noTrackingTitle, { color: colors.text }]}>
-              Order Status Update
-            </Text>
-            <Text style={[styles.noTrackingMessage, { color: colors.textSecondary }]}>
-              Your order is being processed. You'll receive notifications for pickup and delivery updates.
-            </Text>
+        {/* Show map with loading overlay instead of blocking entirely */}
+        <View style={styles.mapContainer}>
+          <GoogleMapComponent
+            driverLocation={undefined}
+            customerLocation={{ latitude: -1.2921, longitude: 36.8219 }}
+            pickupLocation={{ latitude: -1.2921, longitude: 36.8219 }}
+            // showRoute prop removed (component doesn't accept it)
+            selectable={false}
+            showBuildings={false}
+            mapHeight={height * 0.4}
+            zoom={12}
+          />
+          <View style={styles.loadingOverlay}>
+            <View style={styles.loadingCard}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.text }]}>
+                Loading tracking...
+              </Text>
+            </View>
           </View>
-        </Card>
+        </View>
       </View>
     );
   }
@@ -333,16 +306,8 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
     );
   }
 
-  if (!customerLocation) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.errorContainer}>
-          <MapPin size={48} color={colors.textSecondary} />
-          <Text style={[styles.errorText, { color: colors.textSecondary }]}>Unable to load location</Text>
-        </View>
-      </View>
-    );
-  }
+  // Always show map with default location if customerLocation is not set
+  const displayLocation = customerLocation || { latitude: -1.2921, longitude: 36.8219 };
 
   const statusInfo = getStatusDisplay(tracking.status);
 
@@ -350,25 +315,26 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Map Component */}
       <View style={styles.mapContainer}>
-        {customerLocation ? (
-          <GoogleMapComponent
-            driverLocation={tracking?.currentLocation || undefined}
-            customerLocation={customerLocation}
-            pickupLocation={pickupLocation || undefined}
-            showRoute={true}
-            mapHeight={height * 0.4}
-            zoom={14}
-            onMapReady={() => console.log('Map loaded successfully')}
-          />
-        ) : (
-          <View style={[styles.loadingContainer, { height: height * 0.4 }]}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={[styles.loadingText, { color: colors.text }]}>
-              Loading map locations...
-            </Text>
-            <Text style={[styles.loadingText, { color: colors.textSecondary, fontSize: 12, marginTop: 8 }]}>
-              Geocoding customer address...
-            </Text>
+        <GoogleMapComponent
+          driverLocation={tracking?.currentLocation || undefined}
+          customerLocation={displayLocation}
+          pickupLocation={pickupLocation || { latitude: -1.2921, longitude: 36.8219 }}
+          // showRoute prop removed (component doesn't accept it)
+          selectable={false}
+          showBuildings={true}
+          mapHeight={height * 0.4}
+          zoom={14}
+          onMapReady={() => console.log('Map loaded successfully')}
+        />
+        {/* Delivery Address Overlay */}
+        {tracking?.deliveryLocation?.address && (
+          <View style={styles.simpleAddressOverlay} pointerEvents="box-none">
+            <View style={styles.simpleAddressCard}>
+              <MapPin size={14} color={colors.primary} />
+              <Text style={[styles.simpleAddressText, { color: colors.text }]} numberOfLines={2}>
+                {tracking.deliveryLocation.address}
+              </Text>
+            </View>
           </View>
         )}
       </View>
@@ -409,15 +375,15 @@ export const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({
           <View style={styles.driverHeader}>
             <View style={[styles.driverAvatar, { backgroundColor: colors.primary + '20' }]}>
               <Text style={[styles.driverInitial, { color: colors.primary }]}>
-                {driver.name.charAt(0).toUpperCase()}
+                {driver.name?.charAt(0)?.toUpperCase() || 'D'}
               </Text>
             </View>
             <View style={styles.driverInfo}>
               <Text style={[styles.driverName, { color: colors.text }]}>
-                {driver.name}
+                {driver.name || 'Unknown Driver'}
               </Text>
               <Text style={[styles.driverDetails, { color: colors.textSecondary }]}>
-                {driver.vehicleType.charAt(0).toUpperCase() + driver.vehicleType.slice(1)} • {driver.vehicleNumber}
+                {driver.vehicleType?.charAt(0)?.toUpperCase() + driver.vehicleType?.slice(1) || 'Unknown'} • {driver.vehicleNumber || 'No plate'}
               </Text>
               <View style={styles.driverRating}>
                 <Text style={[styles.ratingText, { color: colors.warning }]}>
@@ -567,6 +533,32 @@ const styles = StyleSheet.create({
     margin: 20,
     borderRadius: 16,
     overflow: 'hidden',
+  },
+  simpleAddressOverlay: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 10,
+    zIndex: 10,
+  },
+  simpleAddressCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 12,
+    padding: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  simpleAddressText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
   },
   mapPlaceholder: {
     flex: 1,
@@ -737,5 +729,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginTop: 8,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingCard: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });

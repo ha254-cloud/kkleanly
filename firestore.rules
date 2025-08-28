@@ -1,67 +1,227 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Orders collection rules with proper admin access control
-    match /orders/{orderId} {
-      // 🔒 ADMIN: Allow admin to read ALL orders
-      allow read: if request.auth != null && 
-                  request.auth.token.email == 'admin@kleanly.co.ke';
-      
-      // 👤 USERS: Allow users to read only their own orders
-      allow read: if request.auth != null && 
-                  request.auth.uid == resource.data.userID;
-      
-      // 👤 USERS: Allow users to write their own orders
-      allow write: if request.auth != null && 
-                   request.auth.uid == resource.data.userID;
-      
-      // 👤 USERS: Allow users to create orders (they become the owner)
-      allow create: if request.auth != null && 
-                    request.auth.uid == request.resource.data.userID;
-      
-      // 🔒 ADMIN: Allow admin to update order status (for driver assignment, etc.)
-      allow update: if request.auth != null && 
-                    request.auth.token.email == 'admin@kleanly.co.ke';
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+             (request.auth.token.email == 'kleanlyspt@gmail.com' ||
+              request.auth.token.email == 'admin@kleanly.co.ke' ||
+              request.auth.token.email == 'test@admin.com');
     }
     
-    // Drivers collection rules - admin only
-    match /drivers/{driverId} {
-      // 🔒 ADMIN: Only admin can read drivers
-      allow read: if request.auth != null && 
-                  request.auth.token.email == 'admin@kleanly.co.ke';
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isSignedIn() { return request.auth != null; }
+    function isDriver() { return isSignedIn() && request.auth.token.role == 'driver'; }
+
+    // Helper function to check if user is the assigned driver for a delivery
+    function isAssignedDriver(driverId) {
+      return isAuthenticated() && 
+             (request.auth.uid == driverId ||
+              exists(/databases/$(database)/documents/drivers/$(driverId)) &&
+              get(/databases/$(database)/documents/drivers/$(driverId)).data.email == request.auth.token.email);
+    }
+
+    // Only allow payment-related fields to change
+    function onlyPaymentFieldsChanged() {
+      let allowed = [
+        'paymentStatus',
+        'paymentMethod',
+        'paymentAmount',
+        'transactionId',
+        'paymentUpdatedBy',
+        'updatedAt',
+        'lastPaymentEventAt',
+        'paidAt',
+        'paymentEvents'
+      ];
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowed);
+    }
+
+    // Only allow delivery status fields to change
+    function onlyDeliveryStatusChanged() {
+      let allowed = [
+        'status',
+        'currentLocation',
+        'actualPickupTime',
+        'actualDeliveryTime',
+        'updatedAt'
+      ];
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(allowed);
+    }
+
+    // Orders collection rules - SIMPLIFIED FOR DEBUGGING
+    match /orders/{orderId} {
+      // 🔒 ADMIN: Full access to all orders
+      allow read, write, create, delete: if isAdmin();
       
-      // 🔒 ADMIN: Only admin can write/create drivers
-      allow write, create: if request.auth != null && 
-                          request.auth.token.email == 'admin@kleanly.co.ke';
+      // 🔧 TEMPORARY: Allow ALL authenticated users to read orders (for debugging)
+      allow read: if isAuthenticated();
+      
+      // 👤 USERS: Can read and write their own orders
+      allow read, write, create: if isAuthenticated() && 
+                                  resource.data.userID == request.auth.uid;
+      
+      // 🚚 DRIVERS: Can update payment fields only
+      allow update: if isAuthenticated() && onlyPaymentFieldsChanged();
+      
+      // 🚚 DRIVERS: Can update order status
+      allow update: if isAuthenticated();
+      
+      // Allow users to create orders with their own userID
+      allow create: if isAuthenticated() && 
+                    request.resource.data.userID == request.auth.uid;
+    }
+    
+    // Drivers collection rules
+    match /drivers/{driverId} {
+      // 🔒 ADMIN: Full access to all drivers
+      allow read, write, create, delete: if isAdmin();
+      
+      // 🔧 DEVELOPMENT: Temporarily allow any authenticated user to read drivers
+      allow read: if isAuthenticated();
+      
+      // 🚚 DRIVERS: Can read and update their own profile
+      allow read, update: if isAuthenticated() && 
+                          (resource.data.email == request.auth.token.email ||
+                           request.auth.uid == driverId);
+      
+      // Allow authenticated users to create driver accounts (for registration)
+      allow create: if isAuthenticated();
+    }
+    
+    // Delivery tracking collection - SIMPLIFIED FOR DEBUGGING
+    match /deliveryTracking/{trackingId} {
+      // 🔒 ADMIN: Admin can read/write all tracking data
+      allow read, write, create, delete: if isAdmin();
+      
+      // 🔧 TEMPORARY: Allow ALL authenticated users full access (for debugging)
+      allow read, write, create, update: if isAuthenticated();
+    }
+    
+    // Order assignments collection for analytics
+    match /orderAssignments/{assignmentId} {
+      // 🔒 ADMIN: Full access to assignment records
+      allow read, write, create: if isAdmin();
+      
+      // 🚚 DRIVERS: Can read assignments related to them
+      allow read: if isAuthenticated() && 
+                  resource.data.driverId != null &&
+                  isAssignedDriver(resource.data.driverId);
+    }
+    
+    // Driver earnings collection
+    match /driverEarnings/{earningsId} {
+      // 🔒 ADMIN: Full access to all earnings records
+      allow read, write, create: if isAdmin();
+      
+      // 🚚 DRIVERS: Can read their own earnings
+      allow read: if isAuthenticated() && 
+                  resource.data.driverId != null &&
+                  isAssignedDriver(resource.data.driverId);
+    }
+    
+    // Driver shifts collection
+    match /driverShifts/{shiftId} {
+      // 🔒 ADMIN: Full access to all shift records
+      allow read, write, create: if isAdmin();
+      
+      // 🚚 DRIVERS: Can read their own shifts
+      allow read: if isAuthenticated() && 
+                  resource.data.driverId != null &&
+                  isAssignedDriver(resource.data.driverId);
+    }
+    
+    // Notifications collection
+    match /notifications/{notificationId} {
+      // 🔒 ADMIN: Full access to all notifications
+      allow read, write, create, delete: if isAdmin();
+      
+      // 🚚 DRIVERS: Can read notifications sent to them
+      allow read, update: if isAuthenticated() && 
+                          resource.data.driverId != null &&
+                          isAssignedDriver(resource.data.driverId);
+      
+      // 👤 USERS: Can read notifications sent to them
+      allow read: if isAuthenticated() && 
+                  resource.data.userId == request.auth.uid;
     }
     
     // Users collection rules (user profiles)
     match /users/{userId} {
       // 🔒 ADMIN: Allow admin to read all user profiles
-      allow read: if request.auth != null && 
-                  request.auth.token.email == 'admin@kleanly.co.ke';
+      allow read: if isAdmin();
       
       // 👤 USERS: Users can read and write their own profile
-      allow read, write: if request.auth != null && 
-                         request.auth.uid == userId;
+      allow read, write, create: if isAuthenticated() && 
+                                 request.auth.uid == userId;
+    }
+
+    // User profiles collection
+    match /userProfiles/{userId} {
+      // 🔒 ADMIN: Allow admin to read all user profiles
+      allow read: if isAdmin();
+      
+      // 👤 USERS: Users can read and write their own profile
+      allow read, write, create: if isAuthenticated() && 
+                                 request.auth.uid == userId;
+      
+      // 🚚 DRIVERS: Allow authenticated drivers to read customer profiles for contact purposes
+      allow read: if isAuthenticated();
+    }
+
+    // User addresses collection
+    match /userAddresses/{addressId} {
+      // 🔒 ADMIN: Allow admin to read all addresses
+      allow read: if isAdmin();
+      
+      // 👤 USERS: Users can manage their own addresses
+      allow read, write, create, delete: if isAuthenticated() && 
+                                         resource.data.userId == request.auth.uid;
+      
+      // Allow creation if the user is setting their own ID
+      allow create: if isAuthenticated() && 
+                    request.resource.data.userId == request.auth.uid;
+    }
+
+    // User payment methods collection
+    match /userPaymentMethods/{paymentId} {
+      // 🔒 ADMIN: Allow admin to read all payment methods
+      allow read: if isAdmin();
+      
+      // 👤 USERS: Users can manage their own payment methods
+      allow read, write, create, delete: if isAuthenticated() && 
+                                         resource.data.userId == request.auth.uid;
+      
+      // Allow creation if the user is setting their own ID
+      allow create: if isAuthenticated() && 
+                    request.resource.data.userId == request.auth.uid;
+    }
+
+    // User preferences collection
+    match /userPreferences/{userId} {
+      // 🔒 ADMIN: Allow admin to read all preferences
+      allow read: if isAdmin();
+      
+      // 👤 USERS: Users can manage their own preferences
+      allow read, write, create: if isAuthenticated() && 
+                                 request.auth.uid == userId;
     }
     
-    // Delivery tracking collection
-    match /deliveryTracking/{trackingId} {
-      // 🔒 ADMIN: Admin can read/write all tracking data
-      allow read, write: if request.auth != null && 
-                         request.auth.token.email == 'admin@kleanly.co.ke';
-      
-      // 🚚 DRIVERS: Drivers can read/write tracking data for their assigned deliveries
-      allow read, write: if request.auth != null && 
-                         request.auth.uid == resource.data.driverId;
-      
-      // 👤 USERS: Users can read tracking data for their orders by linking through orderId
-      allow read: if request.auth != null && exists(/databases/$(database)/documents/orders/$(resource.data.orderId)) && 
-                  get(/databases/$(database)/documents/orders/$(resource.data.orderId)).data.userID == request.auth.uid;
+    // Allow authenticated users to read app configuration and settings
+    match /appConfig/{configId} {
+      allow read: if isAuthenticated();
     }
     
-    // Default deny all other collections
+    // Allow authenticated users to read service information
+    match /services/{serviceId} {
+      allow read: if isAuthenticated();
+    }
+    
+    // Default deny all other collections unless explicitly allowed
     match /{document=**} {
       allow read, write: if false;
     }

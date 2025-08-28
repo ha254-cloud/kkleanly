@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,11 @@ import {
   TouchableOpacity,
   ScrollView,
   Dimensions,
+  Share,
+  Alert,
+  Linking,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { 
   X, 
@@ -29,6 +33,7 @@ import { useTheme } from '../context/ThemeContext';
 import { Colors } from '../constants/Colors';
 import { Card } from './ui/Card';
 import { Button } from './ui/Button';
+import { EnhancedReceiptModal } from './EnhancedReceiptModal';
 
 const { width } = Dimensions.get('window');
 
@@ -41,26 +46,90 @@ interface OrderConfirmationModalProps {
     items: Array<{ name: string; quantity: number; price: number }>;
     total: number;
     area: string;
+  estate?: string;
     phone: string;
     pickupTime: string;
     paymentMethod: string;
     status: string;
   } | null;
-  onViewReceipt?: () => void;
 }
 
 export default function OrderConfirmationModal({
   visible,
   onClose,
   orderDetails,
-  onViewReceipt,
 }: OrderConfirmationModalProps) {
   const { isDark } = useTheme();
   const colors = isDark ? Colors.dark : Colors.light;
 
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+
   if (!orderDetails) return null;
 
   const isPaid = orderDetails.paymentMethod !== 'cash';
+
+  // Handler functions for buttons
+  const handleWhatsApp = () => {
+    const message = `Hi! I have a question about my order #${orderDetails.id.slice(-6).toUpperCase()}`;
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    Linking.openURL(whatsappUrl).catch(() => {
+      Alert.alert('WhatsApp not installed', 'Please install WhatsApp to use this feature');
+    });
+  };
+
+  const handleShare = async () => {
+    try {
+      const message = `My Kleanly order is confirmed!\n\nOrder: #${orderDetails.id.slice(-6).toUpperCase()}\nService: ${orderDetails.service}\nPickup: ${orderDetails.pickupTime}\n\nTry Kleanly for premium laundry services!`;
+      await Share.share({
+        message,
+        title: 'My Kleanly Order',
+      });
+    } catch (error) {
+      console.log('Share error:', error);
+    }
+  };
+
+  const handleNotifications = () => {
+    Alert.alert(
+      'Notifications',
+      'You will receive SMS and WhatsApp updates about your order status.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleCall = () => {
+    const phoneNumber = 'tel:+254714648622'; // Support team contact number
+    Linking.openURL(phoneNumber).catch(() => {
+      Alert.alert('Cannot make call', 'Please dial +254 700 000 000 manually');
+    });
+  };
+
+  const handleReferral = () => {
+    Alert.alert(
+      'Referral Program',
+      'Share your referral code and earn KSH 200 for each successful referral!',
+      [
+        { text: 'Maybe Later', style: 'cancel' },
+        { text: 'Share Now', onPress: handleShare }
+      ]
+    );
+  };
+
+  // Transform orderDetails to match the Order type expected by EnhancedReceiptModal
+  const orderForReceipt = {
+    ...orderDetails,
+    userID: 'default-user-id',
+    category: orderDetails.service,
+    date: new Date().toISOString(),
+    address: orderDetails.area,
+    createdAt: new Date().toISOString(),
+    paymentMethod: orderDetails.paymentMethod as "card" | "cash" | "other" | "mpesa",
+    status: orderDetails.status as "pending" | "confirmed" | "in-progress" | "completed" | "cancelled",
+    items: orderDetails.items.map(item => `${item.name} (x${item.quantity})`),
+    isPaid: isPaid,
+    completedAt: orderDetails.status === 'completed' ? new Date().toISOString() : null,
+    specialInstructions: ''
+  };
 
   return (
     <Modal
@@ -92,9 +161,9 @@ export default function OrderConfirmationModal({
                 <View style={styles.successGlow} />
               </View>
             </View>
-            <Text style={styles.headerTitle}>  Order Confirmed!</Text>
+            <Text style={styles.headerTitle}>Order Confirmed!</Text>
             <Text style={styles.headerSubtitle}>
-              {isPaid ? '✅ Payment Successful' : '  Pay on Pickup'}
+              {isPaid ? 'Payment Successful' : 'Pay on Pickup'}
             </Text>
             <View style={styles.orderIdContainer}>
               <Text style={styles.orderIdLabel}>Order ID:</Text>
@@ -106,15 +175,24 @@ export default function OrderConfirmationModal({
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           {/* Quick Actions */}
           <View style={styles.quickActions}>
-            <TouchableOpacity style={[styles.quickActionButton, { backgroundColor: colors.primary + '20' }]}>
+            <TouchableOpacity 
+              style={[styles.quickActionButton, { backgroundColor: colors.primary + '20' }]}
+              onPress={handleWhatsApp}
+            >
               <MessageCircle size={20} color={colors.primary} />
               <Text style={[styles.quickActionText, { color: colors.primary }]}>WhatsApp Us</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.quickActionButton, { backgroundColor: colors.success + '20' }]}>
+            <TouchableOpacity 
+              style={[styles.quickActionButton, { backgroundColor: colors.success + '20' }]}
+              onPress={handleShare}
+            >
               <Share2 size={20} color={colors.success} />
               <Text style={[styles.quickActionText, { color: colors.success }]}>Share Order</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.quickActionButton, { backgroundColor: colors.warning + '20' }]}>
+            <TouchableOpacity 
+              style={[styles.quickActionButton, { backgroundColor: colors.warning + '20' }]}
+              onPress={handleNotifications}
+            >
               <Bell size={20} color={colors.warning} />
               <Text style={[styles.quickActionText, { color: colors.warning }]}>Notifications</Text>
             </TouchableOpacity>
@@ -131,6 +209,11 @@ export default function OrderConfirmationModal({
                   #{orderDetails.id.slice(-6).toUpperCase()}
                 </Text>
               </View>
+              {orderDetails.estate ? (
+                <View style={{ marginLeft:8, paddingHorizontal:10, paddingVertical:4, borderRadius:14, backgroundColor: colors.success + '20', borderWidth:1, borderColor: colors.success + '55' }}>
+                  <Text style={{ fontSize:11, fontWeight:'600', color: colors.success }}>{orderDetails.estate}</Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.orderInfo}>
@@ -157,6 +240,15 @@ export default function OrderConfirmationModal({
                   {orderDetails.area}
                 </Text>
               </View>
+              {orderDetails.estate ? (
+                <View style={styles.infoRow}>
+                  <View style={{ width:20, alignItems:'center' }}>
+                    <MapPin size={18} color={colors.primary} />
+                  </View>
+                  <Text style={[styles.infoLabel, { color: colors.text }]}>Estate:</Text>
+                  <Text style={[styles.infoValue, { color: colors.text }]}>{orderDetails.estate}</Text>
+                </View>
+              ) : null}
 
               <View style={styles.infoRow}>
                 <Phone size={20} color={colors.primary} />
@@ -198,7 +290,7 @@ export default function OrderConfirmationModal({
           {/* Timeline - What Happens Next */}
           <Card style={styles.timelineCard}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              🚀 What Happens Next?
+              What Happens Next?
             </Text>
             <View style={styles.timeline}>
               <View style={styles.timelineStep}>
@@ -207,7 +299,7 @@ export default function OrderConfirmationModal({
                 </View>
                 <View style={styles.timelineContent}>
                   <Text style={[styles.timelineTitle, { color: colors.text }]}>
-                    📦 Pickup Scheduled
+                    Pickup Scheduled
                   </Text>
                   <Text style={[styles.timelineDescription, { color: colors.textSecondary }]}>
                     We'll collect your items at {orderDetails.pickupTime}
@@ -221,7 +313,7 @@ export default function OrderConfirmationModal({
                 </View>
                 <View style={styles.timelineContent}>
                   <Text style={[styles.timelineTitle, { color: colors.text }]}>
-                    ✨ Professional Cleaning
+                    Professional Cleaning
                   </Text>
                   <Text style={[styles.timelineDescription, { color: colors.textSecondary }]}>
                     Your items will be cleaned with premium care
@@ -235,7 +327,7 @@ export default function OrderConfirmationModal({
                 </View>
                 <View style={styles.timelineContent}>
                   <Text style={[styles.timelineTitle, { color: colors.text }]}>
-                    🏠 Fresh Delivery
+                    Fresh Delivery
                   </Text>
                   <Text style={[styles.timelineDescription, { color: colors.textSecondary }]}>
                     Clean items delivered back to you within 24-48 hours
@@ -256,44 +348,26 @@ export default function OrderConfirmationModal({
                   <MessageCircle size={24} color={colors.primary} />
                 </View>
                 <Text style={[styles.careTitle, { color: colors.text }]}>
-                  💬 Need Help?
+                  Need Help?
                 </Text>
               </View>
               <Text style={[styles.careDescription, { color: colors.textSecondary }]}>
                 Our customer care team is here 24/7 to assist you with any questions about your order.
               </Text>
               <View style={styles.careActions}>
-                <TouchableOpacity style={[styles.careButton, { backgroundColor: colors.success }]}>
+                <TouchableOpacity 
+                  style={[styles.careButton, { backgroundColor: colors.success }]}
+                  onPress={handleWhatsApp}
+                >
                   <MessageCircle size={16} color="#FFFFFF" />
                   <Text style={styles.careButtonText}>WhatsApp</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.careButton, { backgroundColor: colors.primary }]}>
+                <TouchableOpacity 
+                  style={[styles.careButton, { backgroundColor: colors.primary }]}
+                  onPress={handleCall}
+                >
                   <Phone size={16} color="#FFFFFF" />
                   <Text style={styles.careButtonText}>Call Us</Text>
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
-          </Card>
-
-          {/* Referral Bonus */}
-          <Card style={styles.bonusCard}>
-            <LinearGradient
-              colors={[colors.warning + '15', colors.warning + '08']}
-              style={styles.bonusGradient}
-            >
-              <View style={styles.bonusContent}>
-                <View style={[styles.bonusIcon, { backgroundColor: colors.warning + '20' }]}>
-                  <Gift size={32} color={colors.warning} />
-                </View>
-                <Text style={[styles.bonusTitle, { color: colors.text }]}>
-                  🎁 Earn KSH 200!
-                </Text>
-                <Text style={[styles.bonusDescription, { color: colors.textSecondary }]}>
-                  Refer a friend and both of you get KSH 200 credit on your next order!
-                </Text>
-                <TouchableOpacity style={[styles.bonusButton, { backgroundColor: colors.warning }]}>
-                  <Share2 size={16} color="#FFFFFF" />
-                  <Text style={styles.bonusButtonText}>Share & Earn</Text>
                 </TouchableOpacity>
               </View>
             </LinearGradient>
@@ -324,74 +398,46 @@ export default function OrderConfirmationModal({
             
             {!isPaid && (
               <Text style={[styles.paymentNote, { color: colors.textSecondary }]}>
-                  You'll receive a receipt when you pay during pickup
+                You'll receive a receipt when you pay during pickup
               </Text>
             )}
           </Card>
 
-          {/* Next Steps */}
-          <Card style={styles.nextStepsCard}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              What's Next?
+          {/* Receipt Button */}
+          <TouchableOpacity
+            style={styles.receiptButton}
+            onPress={() => setShowReceiptModal(true)}
+          >
+            <Ionicons name="receipt" size={20} color={colors.primary} />
+            <Text style={[styles.receiptButtonText, { color: colors.primary }]}>
+              View Receipt
             </Text>
-            <View style={styles.stepsList}>
-              <View style={styles.step}>
-                <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.stepNumberText}>1</Text>
-                </View>
-                <Text style={[styles.stepText, { color: colors.text }]}>
-                  We'll collect your items at the scheduled time
-                </Text>
-              </View>
-              
-              <View style={styles.step}>
-                <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.stepNumberText}>2</Text>
-                </View>
-                <Text style={[styles.stepText, { color: colors.text }]}>
-                  Your items will be processed within 24 hours
-                </Text>
-              </View>
-              
-              <View style={styles.step}>
-                <View style={[styles.stepNumber, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.stepNumberText}>3</Text>
-                </View>
-                <Text style={[styles.stepText, { color: colors.text }]}>
-                  We'll deliver your clean items back to you
-                </Text>
-              </View>
-            </View>
-          </Card>
+          </TouchableOpacity>
         </ScrollView>
 
         {/* Action Buttons */}
         <View style={[styles.actionButtons, { backgroundColor: colors.background }]}>
           <TouchableOpacity 
-            style={[styles.actionButton, styles.receiptButton, { backgroundColor: colors.surface, borderColor: colors.primary }]}
-            onPress={() => {
-              if (onViewReceipt) {
-                onViewReceipt();
-              }
-            }}
-          >
-            <Package size={20} color={colors.primary} />
-            <Text style={[styles.actionButtonText, { color: colors.primary }]}>📄 View Receipt</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
             style={[styles.actionButton, styles.doneButton]}
             onPress={onClose}
           >
-            <LinearGradient
-              colors={[colors.success, colors.success + 'E6']}
-              style={styles.doneButtonGradient}
-            >
-              <CheckCircle size={20} color="#FFFFFF" />
-              <Text style={styles.doneButtonText}>  Perfect!</Text>
-            </LinearGradient>
+        {/* Receipt Modal */}
+        <EnhancedReceiptModal
+          visible={showReceiptModal}
+          onClose={() => setShowReceiptModal(false)}
+          order={orderForReceipt}
+          customerName="Customer Name" // Get from your state
+        />
           </TouchableOpacity>
         </View>
+
+        {/* Receipt Modal */}
+        <EnhancedReceiptModal
+          visible={showReceiptModal}
+          onClose={() => setShowReceiptModal(false)}
+          order={orderForReceipt}
+          customerName="Customer Name" // Get from your state
+        />
       </View>
     </Modal>
   );
@@ -658,49 +704,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  bonusCard: {
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
-  bonusGradient: {
-    padding: 20,
-  },
-  bonusContent: {
-    alignItems: 'center',
-  },
-  bonusIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  bonusTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  bonusDescription: {
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  bonusButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-    gap: 8,
-  },
-  bonusButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
   paymentCard: {
     marginBottom: 16,
     padding: 20,
@@ -729,36 +732,6 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 8,
   },
-  nextStepsCard: {
-    marginBottom: 16,
-    padding: 20,
-  },
-  stepsList: {
-    gap: 16,
-  },
-  step: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  stepNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-  },
-  stepNumberText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  stepText: {
-    fontSize: 16,
-    flex: 1,
-    lineHeight: 24,
-  },
   actionButtons: {
     flexDirection: 'row',
     padding: 20,
@@ -771,18 +744,6 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 16,
     overflow: 'hidden',
-  },
-  receiptButton: {
-    borderWidth: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 8,
-  },
-  actionButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
   },
   doneButton: {
     borderRadius: 16,
@@ -798,6 +759,20 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+  receiptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    marginTop: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  receiptButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });
 

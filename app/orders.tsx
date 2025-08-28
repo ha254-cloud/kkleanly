@@ -197,9 +197,9 @@ export default function OrdersScreen() {
           </View>
         ) : (
           <View style={styles.ordersList}>
-            {filteredOrders.map((order) => (
+            {filteredOrders.map((order, index) => (
               <OrderCard
-                key={order.id}
+                key={`${order.id}-${index}`}
                 order={order}
                 onPress={() => router.push(`/(tabs)/order-details/${order.id}` as any)}
                 onOrderUpdated={handleOrderUpdated}

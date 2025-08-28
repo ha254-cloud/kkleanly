@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+             (request.auth.token.email == 'kleanlyspt@gmail.com' ||
+              request.auth.token.email == 'admin@kleanly.co.ke' ||
+              request.auth.token.email == 'test@admin.com');
+    }
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Drivers collection - temporarily very permissive for debugging
+    match /drivers/{driverId} {
+      allow read, write, create, delete: if isAuthenticated();
+    }
+    
+    // Orders collection - basic permissions
+    match /orders/{orderId} {
+      allow read, write, create, delete: if isAuthenticated();
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read, write, create: if isAuthenticated();
+    }
+    
+    // Allow read access to app configuration
+    match /appConfig/{configId} {
+      allow read: if isAuthenticated();
+    }
+    
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

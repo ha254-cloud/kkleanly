@@ -28,7 +28,8 @@ interface OrderProviderProps {
 }
 
 export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
-  const [orders, setOrders] = useState<Order[]>([]);
+  // Raw orders as received (may contain duplicates transiently)
+  const [rawOrders, setRawOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
   const previousOrdersRef = useRef<Order[]>([]);
@@ -46,42 +47,77 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
   // Set up real-time listener when user changes
   useEffect(() => {
     if (!user?.uid) {
-      setOrders([]);
+      setRawOrders([]);
       previousOrdersRef.current = [];
       return;
     }
 
+    console.log('🔥 OrderContext: Setting up real-time listener for user:', user.uid);
     setLoading(true);
     
-    // Set up real-time listener
-    const unsubscribe = orderService.subscribeToUserOrders(
-      user.uid,
-      (newOrders) => {
-        // Check for status changes and send notifications
-        if (previousOrdersRef.current.length > 0) {
-          newOrders.forEach(newOrder => {
-            const existingOrder = previousOrdersRef.current.find(o => o.id === newOrder.id);
-            if (existingOrder && existingOrder.status !== newOrder.status) {
-              // Status changed - send notification
-              handleOrderStatusChange(newOrder, existingOrder.status, newOrder.status);
-            }
-          });
-        }
+    let unsubscribe: (() => void) | null = null;
+    
+    // Wait for Firebase auth to be fully ready before setting up listeners
+    const setupListener = async () => {
+      try {
+        // Import the auth ready function
+        const { waitForAuth } = await import('../services/firebase');
         
-        // Update both state and ref
-        setOrders(newOrders);
-        previousOrdersRef.current = newOrders;
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Error in real-time orders listener:', error);
+        // Wait for authentication to be ready
+        const isAuthenticated = await waitForAuth();
+        
+        if (!isAuthenticated || !user?.uid) {
+          console.log('❌ Authentication not ready or user changed, skipping listener setup');
+          setLoading(false);
+          return;
+        }
+
+        console.log('✅ Authentication confirmed, setting up order listener');
+        
+        // Set up real-time listener
+        unsubscribe = orderService.subscribeToUserOrders(
+          user.uid,
+          (newOrders) => {
+            console.log('✅ OrderContext: Received orders update:', newOrders.length);
+            // Check for status changes and send notifications
+            if (previousOrdersRef.current.length > 0) {
+              newOrders.forEach(newOrder => {
+                const existingOrder = previousOrdersRef.current.find(o => o.id === newOrder.id);
+                if (existingOrder && existingOrder.status !== newOrder.status) {
+                  // Status changed - send notification
+                  handleOrderStatusChange(newOrder, existingOrder.status, newOrder.status);
+                }
+              });
+            }
+            
+            // Update both state and ref
+            setRawOrders(newOrders);
+            previousOrdersRef.current = newOrders;
+            setLoading(false);
+          },
+          (error) => {
+            console.error('❌ Error in real-time orders listener:', error);
+            console.error('❌ Error details:', {
+              code: error.code,
+              message: error.message,
+              userId: user?.uid,
+              userEmail: user?.email
+            });
+            setLoading(false);
+          }
+        );
+      } catch (error) {
+        console.error('❌ Error setting up order listener:', error);
         setLoading(false);
       }
-    );
+    };
 
-    // Cleanup listener on unmount or user change
+    setupListener();
+
+    // Cleanup function
     return () => {
       if (unsubscribe) {
+        console.log('🔥 OrderContext: Cleaning up real-time listener');
         unsubscribe();
       }
     };
@@ -139,7 +175,11 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
         createdAt: new Date().toISOString(),
       };
       
-      setOrders(prev => [newOrder, ...prev]);
+      // Optimistically add only if not already present (subscription will reconcile)
+      setRawOrders(prev => {
+        if (prev.some(o => o.id === orderId)) return prev;
+        return [newOrder, ...prev];
+      });
       
       // Send order created notification
       try {
@@ -169,7 +209,7 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
     setLoading(true);
     try {
       const userOrders = await orderService.getUserOrders(user.uid);
-      setOrders(userOrders);
+  setRawOrders(userOrders);
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
@@ -180,7 +220,7 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
   const updateOrderStatus = async (orderId: string, status: Order['status']) => {
     try {
       await orderService.updateOrderStatus(orderId, status);
-      setOrders(prev =>
+  setRawOrders(prev =>
         prev.map(order =>
           order.id === orderId ? { ...order, status } : order
         )
@@ -193,7 +233,7 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
   const cancelOrder = async (orderId: string, reason: string) => {
     try {
       await orderService.cancelOrder(orderId, reason);
-      setOrders(prev =>
+  setRawOrders(prev =>
         prev.map(order =>
           order.id === orderId 
             ? { 
@@ -217,7 +257,7 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
   ) => {
     try {
       await orderService.updateOrderTimes(orderId, pickupTime, preferredDeliveryTime);
-      setOrders(prev =>
+  setRawOrders(prev =>
         prev.map(order =>
           order.id === orderId 
             ? { 
@@ -232,6 +272,25 @@ export const OrderProvider: React.FC<OrderProviderProps> = ({ children }) => {
       throw error;
     }
   };
+
+  // Centralized dedupe + sort so UI components don't repeat logic
+  const orders = React.useMemo(() => {
+    if (!rawOrders.length) return [];
+    const map = new Map<string, Order>();
+    for (const o of rawOrders) {
+      if (!o.id) continue;
+      if (!map.has(o.id)) {
+        map.set(o.id, o);
+      } else {
+        // Prefer the one with later updated status or newer createdAt if mismatch
+        const existing = map.get(o.id)!;
+        if (existing.status !== o.status) {
+          map.set(o.id, o); // last write wins
+        }
+      }
+    }
+    return [...map.values()].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [rawOrders]);
 
   const value = {
     orders,
